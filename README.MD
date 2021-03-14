@@ -9,15 +9,20 @@
 ## Commands
 
 ### Admin Commands 
-`/add token minimal? channel? -> Adds a new hook binding for mod logs to the current channel or the channel specified.`
-`/delete streamerID/streamerName channel? -> Removed the hook for that channel.`
-`/list channel? -> Lists the current hooks for either the guild or the specified channel.`
-`/ignore userID -> Ignores a user useful for bot.` 
-`/unignore userID -> Unignores a user.`
-`/ignored -> Shows all ignored users` 
+- ```/add token minimal? channel? -> Adds a new hook binding for mod logs to the current channel or the channel specified.```
+
+- ```/delete streamerID/streamerName channel? -> Removed the hook for that channel.```
+
+- ```/list channel? -> Lists the current hooks for either the guild or the specified channel.```
+
+- ```/ignore userID -> Ignores a user useful for bot.```
+
+- ```/unignore userID -> Unignores a user.```
+
+- ```/ignored -> Shows all ignored users```
 
 ### Other Commands
-`/link -> Displays invite links.`
+- ```/link -> Displays invite links.```
 
 
 

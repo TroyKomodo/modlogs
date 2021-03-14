@@ -1,5 +1,28 @@
 # ModLogs
 
+## Using the global version
+
+1. Go to the website https://komodohype.dev and add the bot to your discord.
+2. Ask your streamer to go to the website https://komodohype.dev/login and copy the command that it returns and patse it your discord channel.
+
+
+## Commands
+
+### Admin Commands 
+`/add token minimal? channel? -> Adds a new hook binding for mod logs to the current channel or the channel specified.`
+`/delete streamerID/streamerName channel? -> Removed the hook for that channel.`
+`/list channel? -> Lists the current hooks for either the guild or the specified channel.`
+`/ignore userID -> Ignores a user useful for bot.` 
+`/unignore userID -> Unignores a user.`
+`/ignored -> Shows all ignored users` 
+
+### Other Commands
+`/link -> Displays invite links.`
+
+
+
+## Running it yourself.
+
 1. Install golang
 ```bash
 wget https://golang.org/dl/go1.16.2.linux-amd64.tar.gz

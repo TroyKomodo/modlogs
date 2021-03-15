@@ -1,5 +1,7 @@
 # ModLogs
 
+A bot used to post twitch mod actions into a discord channel.
+
 ## Using the global version
 
 1. Go to the website https://modlogs.komodohype.dev and add the bot to your discord.
@@ -26,6 +28,9 @@ If you find any questions, feature requests, bugs, issues or an error is thrown,
 ### Other Commands
 - ```/link -> Displays invite links.```
 
+### Screenshots
+![image](https://user-images.githubusercontent.com/49777269/111158373-a128cf80-85a0-11eb-9d13-ca634ef56d78.png)
+![image](https://user-images.githubusercontent.com/49777269/111158729-10062880-85a1-11eb-8f78-04ff35cd2434.png)
 
 
 ## Running it yourself.

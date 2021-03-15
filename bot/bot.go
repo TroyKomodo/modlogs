@@ -1244,7 +1244,7 @@ func (b *Bot) processCallback(cb WebhookRequest) {
 		} else {
 			title = "User Timeout Event"
 			fields = append(fields, &discordgo.MessageEmbedField{Name: "Expires", Value: cb.Expires.Format("Mon Jan _2 15:04:05 2006")})
-			cmd = fmt.Sprintf("timeout %s %v", cb.UserName, math.Round(float64(cb.Expires.Sub(cb.CreatedAt)/time.Second))+1)
+			cmd = fmt.Sprintf("timeout %s %v", cb.UserName, int64(math.Round(float64(cb.Expires.Sub(cb.CreatedAt)/time.Second))+1))
 		}
 		if cb.Reason != "" {
 			cmd = fmt.Sprintf("%s %s", cmd, reason)

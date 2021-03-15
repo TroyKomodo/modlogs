@@ -4,7 +4,9 @@
 
 1. Go to the website https://komodohype.dev and add the bot to your discord.
 2. Ask your streamer to go to the website https://komodohype.dev/login and copy the command that it returns and patse it your discord channel.
+3. You can have a maximum of 10 hooks per discord. If you need more you can dm me on discord Troy#0003
 
+If you find any questions, feature requests, bugs, issues or an error is thrown, please make an issue [here](https://github.com/TroyDota/modlogs/issues).
 
 ## Commands
 
@@ -15,9 +17,9 @@
 
 - ```/list channel? -> Lists the current hooks for either the guild or the specified channel.```
 
-- ```/ignore userID -> Ignores a user useful for bot.```
+- ```/ignore accountName/accountID -> Ignores a user useful for bot.```
 
-- ```/unignore userID -> Unignores a user.```
+- ```/unignore accountName/accountID -> Unignores a user.```
 
 - ```/ignored -> Shows all ignored users```
 

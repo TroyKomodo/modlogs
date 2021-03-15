@@ -27,6 +27,7 @@ type ServerCfg struct {
 	DiscordInvite      string   `mapstructure:"discord_invite"`
 	DiscordBotToken    string   `mapstructure:"discord_bot_token"`
 	Admins             []string `mapstructure:"admins"`
+	MaxHooksPerGuild   int      `mapstructure:"max_hooks_per_guild"`
 	ExitCode           int      `mapstructure:"exit_code"`
 }
 
@@ -70,6 +71,7 @@ func init() {
 	pflag.String("cookie_domain", "", "Domain for the cookies to be set.")
 	pflag.String("discord_invite", "", "The invite url for the discord bot.")
 	pflag.String("discord_bot_token", "", "The discord bot token.")
+	pflag.Int("max_hooks_per_guild", 10, "Max number of hooks per guild.")
 	pflag.String("version", "1.0", "Version of the system.")
 	pflag.StringSlice("admins", []string{}, "Ids of global bot admins.")
 	pflag.Int("exit_code", 0, "Status code for successful and graceful shutdown, [0-125].")

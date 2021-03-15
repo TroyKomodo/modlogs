@@ -2,6 +2,10 @@ level: "info"
 
 redis_uri: "redis://username:password@url/db"
 
+mongo_uri: "mongodb://username:password@url:port/?authSource=db"
+
+mongo_db: "db"
+
 conn_uri: "127.0.0.1:5556"
 
 conn_type: "tcp"
@@ -19,6 +23,8 @@ website_url: "https://example.com"
 discord_invite: "https://discord.com/api/oauth2/authorize?client_id=&permissions=8&scope=bot%20applications.commands"
 
 discord_bot_token: ""
+
+max_hooks_per_guild: 10
 
 admins:
   - "discord-user-id"

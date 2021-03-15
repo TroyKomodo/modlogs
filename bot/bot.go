@@ -9,12 +9,14 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/davecgh/go-spew/spew"
 	jsoniter "github.com/json-iterator/go"
 	log "github.com/sirupsen/logrus"
 	"github.com/troydota/modlogs/api"
 	"github.com/troydota/modlogs/configure"
+	"github.com/troydota/modlogs/mongo"
 	"github.com/troydota/modlogs/redis"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 var json = jsoniter.ConfigCompatibleWithStandardLibrary
@@ -31,6 +33,7 @@ type WebhookRequest struct {
 	Action              string
 	Expires             *time.Time
 	CreatedAt           time.Time
+	rateLimiter         *rateLimiter
 }
 
 var Callback = make(chan WebhookRequest)
@@ -60,6 +63,7 @@ type Bot struct {
 
 	commands []*cmdWrapper
 	stopped  chan struct{}
+	limiter  *rateLimiter
 }
 
 var validationWrapper = func(next func(s *discordgo.Session, i *discordgo.InteractionCreate, g *discordgo.Guild)) func(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -191,7 +195,7 @@ var (
 				{
 					Type:        discordgo.ApplicationCommandOptionString,
 					Name:        "user",
-					Description: "The ID of the twitch user.",
+					Description: "The id or username of the twitch account.",
 					Required:    true,
 				},
 			},
@@ -203,7 +207,7 @@ var (
 				{
 					Type:        discordgo.ApplicationCommandOptionString,
 					Name:        "user",
-					Description: "The ID of the twitch user.",
+					Description: "The id or username of the twitch account.",
 					Required:    true,
 				},
 			},
@@ -221,20 +225,24 @@ var (
 		"add": validationWrapper(func(s *discordgo.Session, i *discordgo.InteractionCreate, g *discordgo.Guild) {
 			token := i.Data.Options[0].StringValue()
 			var channel *discordgo.Channel
-			var minimal bool
-			if len(i.Data.Options) == 2 {
-				minimal = i.Data.Options[1].BoolValue()
-			}
-			if len(i.Data.Options) == 3 {
-				channel = i.Data.Options[2].ChannelValue(s)
-				if channel != nil && channel.Type != discordgo.ChannelTypeGuildText {
-					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-						Type: discordgo.InteractionResponseChannelMessageWithSource,
-						Data: &discordgo.InteractionApplicationCommandResponseData{
-							Content: "Logs can only be outputted into a text channel.",
-						},
-					})
-					return
+			mode := mongo.ModeMinimal
+
+			for _, o := range i.Data.Options {
+				if o.Name == "minmal" {
+					if !o.BoolValue() {
+						mode = mongo.ModeEmbed
+					}
+				} else if o.Name == "channel" {
+					channel = o.ChannelValue(s)
+					if channel != nil && channel.Type != discordgo.ChannelTypeGuildText {
+						s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+							Type: discordgo.InteractionResponseChannelMessageWithSource,
+							Data: &discordgo.InteractionApplicationCommandResponseData{
+								Content: "Logs can only be outputted into a text channel.",
+							},
+						})
+						return
+					}
 				}
 			}
 
@@ -256,7 +264,7 @@ var (
 				})
 			}
 
-			userStr, err := redis.AuthTokenValues(token)
+			userID, err := redis.AuthTokenValues(token)
 			if err != nil {
 				msg := "Internal server error. Please try again later."
 				if err == redis.ErrNil {
@@ -273,48 +281,49 @@ var (
 				return
 			}
 
-			user := &api.TwitchUser{}
+			user := &mongo.User{}
 
-			if err := json.UnmarshalFromString(userStr, user); err != nil {
-				log.Errorf("json, err=%e", err)
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
-					Data: &discordgo.InteractionApplicationCommandResponseData{
-						Content: "Internal server error. Please try again later.",
-					},
-				})
-				return
+			filterOr := bson.M{
+				"id": userID,
 			}
 
-			val, err := redis.CreateCallback(user.ID, g.ID, channel.ID, minimal)
-			if err != nil {
-				log.Errorf("redis, err=%e", err)
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
-					Data: &discordgo.InteractionApplicationCommandResponseData{
-						Content: "Internal server error. Please try again later.",
-					},
-				})
-				return
-			}
+			res := mongo.Database.Collection("users").FindOne(mongo.Ctx, filterOr)
 
-			if val == -1 {
+			err = res.Err()
+			if err == nil {
+				err = res.Decode(user)
+			}
+			if err == mongo.ErrNoDocuments {
+				err = nil
+				users, err := api.GetUsers("", []string{userID}, nil)
 				if err != nil {
+					log.Errorf("api, err=%e", err)
 					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
-							Content: "There are too many hooks in this discord.",
+							Content: "Internal server error. Please try again later.",
 						},
 					})
 					return
 				}
-			}
-
-			if val == 0 {
-				err := api.CreateWebhooks(user.ID)
-				if err != nil {
-					redis.DeleteCallback(user.ID, g.ID, channel.ID)
-					log.Errorf("api, err=%e", err)
+				if len(users) == 0 {
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionApplicationCommandResponseData{
+							Content: "The specified broadcaster does not exist.",
+						},
+					})
+					return
+				}
+				u := users[0]
+				opts := options.Update().SetUpsert(true)
+				user = &mongo.User{
+					ID:    u.ID,
+					Name:  u.DisplayName,
+					Login: u.Login,
+				}
+				if _, err := mongo.Database.Collection("users").UpdateOne(mongo.Ctx, filterOr, bson.M{"$set": user}, opts); err != nil {
+					log.Errorf("mongo, err=%e", err)
 					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -325,85 +334,161 @@ var (
 				}
 			}
 
+			if err != nil {
+				log.Errorf("mongo, err=%e", err)
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionApplicationCommandResponseData{
+						Content: "Internal server error. Please try again later.",
+					},
+				})
+				return
+			}
+
+			filter := bson.M{
+				"channel_id":  channel.ID,
+				"guild_id":    g.ID,
+				"streamer_id": user.ID,
+			}
+
+			update := bson.M{
+				"$set": bson.M{
+					"channel_id":  channel.ID,
+					"guild_id":    g.ID,
+					"streamer_id": user.ID,
+					"mode":        mode,
+				},
+			}
+
+			updateResp, err := mongo.Database.Collection("hooks").UpdateOne(mongo.Ctx, filter, update)
+			if err != nil {
+				log.Errorf("mongo, err=%e", err)
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionApplicationCommandResponseData{
+						Content: "Internal server error. Please try again later.",
+					},
+				})
+				return
+			}
+
+			if updateResp.MatchedCount == 1 {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionApplicationCommandResponseData{
+						Content: fmt.Sprintf("ModLogs hook updated for <https://twitch.tv/%s>, into %s", user.Login, channel.Mention()),
+					},
+				})
+				return
+			}
+
+			count, err := mongo.Database.Collection("hooks").CountDocuments(mongo.Ctx, bson.M{
+				"guild_id": g.ID,
+			})
+
+			max := configure.Config.GetInt64("max_hooks_per_guild")
+			if max != -1 && count >= max {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionApplicationCommandResponseData{
+						Content: fmt.Sprintf("There are too many hooks in this discord. (%v/%v)", count, configure.Config.GetInt64("max_hooks_per_guild")),
+					},
+				})
+				return
+			}
+
+			opts := options.Update().SetUpsert(true)
+
+			result, err := mongo.Database.Collection("hooks").UpdateOne(mongo.Ctx, filter, update, opts)
+			if err != nil {
+				log.Errorf("mongo, err=%e", err)
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionApplicationCommandResponseData{
+						Content: "Internal server error. Please try again later.",
+					},
+				})
+				return
+			}
+			if result.UpsertedCount == 1 {
+				val, err := redis.Client.Incr(redis.Ctx, fmt.Sprintf("streamers:%s", user.ID)).Result()
+				if err != nil {
+					log.Errorf("redis, err=%e", err)
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionApplicationCommandResponseData{
+							Content: "Internal server error. Please try again later.",
+						},
+					})
+					return
+				}
+				if val == 1 {
+					err := api.CreateWebhooks(user.ID)
+					if err != nil {
+						log.Errorf("api, err=%e", err)
+						s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+							Type: discordgo.InteractionResponseChannelMessageWithSource,
+							Data: &discordgo.InteractionApplicationCommandResponseData{
+								Content: "Internal server error. Please try again later.",
+							},
+						})
+						err := redis.Client.Decr(redis.Ctx, fmt.Sprintf("streamers:%s", user.ID)).Err()
+						if err != nil {
+							log.Errorf("redis, err=%e", err)
+						}
+						_, err = mongo.Database.Collection("hooks").DeleteOne(mongo.Ctx, bson.M{
+							"_id": result.UpsertedID,
+						})
+						if err != nil {
+							log.Errorf("mongo, err=%e", err)
+						}
+						return
+					}
+				}
+			}
+
 			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionApplicationCommandResponseData{
-					Content: fmt.Sprintf("ModLogs added for <https://twitch.tv/%s>, into %s", user.Login, channel.Mention()),
+					Content: fmt.Sprintf("ModLogs hook added for <https://twitch.tv/%s>, into %s", user.Login, channel.Mention()),
 				},
 			})
 		}),
 		"list": validationWrapper(func(s *discordgo.Session, i *discordgo.InteractionCreate, g *discordgo.Guild) {
 			var channel *discordgo.Channel
-			if len(i.Data.Options) == 1 {
-				channel = i.Data.Options[0].ChannelValue(s)
+			for _, o := range i.Data.Options {
+				if o.Name == "channel" {
+					channel = o.ChannelValue(s)
+					if channel != nil && channel.Type != discordgo.ChannelTypeGuildText {
+						s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+							Type: discordgo.InteractionResponseChannelMessageWithSource,
+							Data: &discordgo.InteractionApplicationCommandResponseData{
+								Content: "Please select a valid channel.",
+							},
+						})
+						return
+					}
+				}
+			}
+
+			filter := bson.M{
+				"guild_id": g.ID,
 			}
 
 			msg := fmt.Sprintf("List todo for guild - %s", g.ID)
-			channelID := ""
 			if channel != nil {
 				msg = fmt.Sprintf("%s - channel - %s", msg, channel.ID)
-				channelID = channel.ID
+				filter["channel_id"] = channel.ID
 			}
 
-			val, err := redis.GetGuildCallbacks(g.ID, channelID)
+			hooks := []*mongo.Hook{}
+
+			cur, err := mongo.Database.Collection("hooks").Find(mongo.Ctx, filter)
+			if err == nil {
+				err = cur.All(mongo.Ctx, &hooks)
+			}
 			if err != nil {
-				log.Error("redis, err=%e", err)
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
-					Data: &discordgo.InteractionApplicationCommandResponseData{
-						Content: "Internal Server Error.",
-					},
-				})
-			}
-
-			chennelIDs := map[string]cc{}
-
-			pipe := redis.Client.Pipeline()
-
-			for _, s := range val {
-				streamer, ok := s.([]interface{})
-				if !ok {
-					log.Warnf("invalid resp from redis, %s", spew.Sdump(s))
-					continue
-				}
-				streamerID, ok := streamer[0].(string)
-				if !ok {
-					log.Warnf("invalid resp from redis, %s", spew.Sdump(streamer))
-					continue
-				}
-				channels, ok := streamer[1].([]interface{})
-				if !ok {
-					log.Warnf("invalid resp from redis, %s", spew.Sdump(streamer))
-					continue
-				}
-
-				cs := make([]c, len(channels))
-
-				for i, ch := range channels {
-					channel, ok := ch.([]interface{})
-					if !ok {
-						log.Warnf("invalid resp from redis, %s", spew.Sdump(ch))
-						continue
-					}
-
-					channelID, ok := channel[0].(string)
-					if !ok {
-						log.Warnf("invalid resp from redis, %s", spew.Sdump(ch))
-						continue
-					}
-					mode, ok := channel[1].(int64)
-					if !ok {
-						log.Warnf("invalid resp from redis, %s", spew.Sdump(ch))
-						continue
-					}
-					cs[i] = c{channelID, mode}
-				}
-
-				chennelIDs[streamerID] = cc{cmd: pipe.Get(redis.Ctx, fmt.Sprintf("users:%s", streamerID)), cs: cs}
-			}
-
-			if _, err := pipe.Exec(redis.Ctx); err != nil {
-				log.Errorf("redis, err=%e", err)
+				log.Errorf("mongo, err=%e", err)
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -413,23 +498,119 @@ var (
 				return
 			}
 
+			streamersIDsMap := map[string]int{}
+
+			for _, s := range hooks {
+				streamersIDsMap[s.StreamerID] = 1
+			}
+			streamerIDs := []string{}
+
+			for k := range streamersIDsMap {
+				streamerIDs = append(streamerIDs, k)
+			}
+
+			opts := options.Update().SetUpsert(true)
+
+			filter = bson.M{
+				"id": bson.M{
+					"$in": streamerIDs,
+				},
+			}
+
+			users := []*mongo.User{}
+
+			cur, err = mongo.Database.Collection("users").Find(mongo.Ctx, filter)
+			if err == nil {
+				err = cur.All(mongo.Ctx, &users)
+			}
+			if err != nil {
+				log.Errorf("mongo, err=%e", err)
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionApplicationCommandResponseData{
+						Content: "Internal server error. Please try again later.",
+					},
+				})
+				return
+			}
+
+			if len(users) != len(streamerIDs) {
+				// find missing ones
+				missingIDs := []string{}
+				for _, id := range streamerIDs {
+					found := false
+					for _, u := range users {
+						if u.ID == id {
+							found = true
+							break
+						}
+					}
+					if !found {
+						missingIDs = append(missingIDs, id)
+					}
+				}
+				apiUsers, err := api.GetUsers("", missingIDs, nil)
+				if err != nil {
+					log.Errorf("api, err=%e", err)
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionApplicationCommandResponseData{
+							Content: "Internal server error. Please try again later.",
+						},
+					})
+				}
+				wg := sync.WaitGroup{}
+				wg.Add(len(apiUsers))
+
+				for _, u := range apiUsers {
+					go func(u api.TwitchUser) {
+						defer wg.Done()
+						user := &mongo.User{
+							ID:    u.ID,
+							Name:  u.DisplayName,
+							Login: u.Login,
+						}
+						users = append(users, user)
+						if _, err := mongo.Database.Collection("users").UpdateOne(mongo.Ctx, bson.M{
+							"$or": bson.A{
+								bson.M{"id": u.ID},
+								bson.M{"login": u.Login},
+							},
+						}, bson.M{"$set": user}, opts); err != nil {
+							log.Errorf("mongo, err=%e", err)
+						}
+					}(u)
+				}
+				wg.Done()
+			}
+
+			usrStr := make([]string, len(users))
+			for i, user := range users {
+				usrStr[i] = user.Name
+			}
+
 			lines := []string{}
 
-			for _, v := range chennelIDs {
-				user := api.TwitchUser{}
-				if err := json.UnmarshalFromString(v.cmd.Val(), &user); err != nil {
-					log.Errorf("json, err=%e", err)
-					continue
+			streamers := map[string][]*mongo.Hook{}
+			for _, hook := range hooks {
+				v, ok := streamers[hook.StreamerID]
+				if !ok {
+					v = []*mongo.Hook{}
+					streamers[hook.StreamerID] = v
 				}
+				streamers[hook.StreamerID] = append(v, hook)
+			}
+
+			for _, v := range users {
 				channels := []string{}
-				for _, c := range v.cs {
-					mode := "embed"
-					if c.mode != 1 {
-						mode = "minimal"
+				for _, h := range streamers[v.ID] {
+					mode := "minimal"
+					if h.Mode == mongo.ModeEmbed {
+						mode = "embed"
 					}
-					channels = append(channels, fmt.Sprintf("<#%s> - %s", c.id, mode))
+					channels = append(channels, fmt.Sprintf("<#%s> - %s", h.ChannelID, mode))
 				}
-				lines = append(lines, fmt.Sprintf(`<https://twitch.tv/%s> -> %s`, user.Login, strings.Join(channels, ", ")))
+				lines = append(lines, fmt.Sprintf(`<https://twitch.tv/%s> -> %s`, v.Login, strings.Join(channels, ", ")))
 			}
 
 			if len(lines) == 0 {
@@ -444,36 +625,43 @@ var (
 			})
 		}),
 		"delete": validationWrapper(func(s *discordgo.Session, i *discordgo.InteractionCreate, g *discordgo.Guild) {
-			streamerID := i.Data.Options[0].StringValue()
+			var broadcaster string
 			var channel *discordgo.Channel
 
-			if len(i.Data.Options) == 2 {
-				channel = i.Data.Options[1].ChannelValue(s)
+			for _, o := range i.Data.Options {
+				if o.Name == "broadcaster" {
+					broadcaster = o.StringValue()
+				}
+				if o.Name == "channel" {
+					channel = o.ChannelValue(s)
+					if channel != nil && channel.Type != discordgo.ChannelTypeGuildText {
+						s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+							Type: discordgo.InteractionResponseChannelMessageWithSource,
+							Data: &discordgo.InteractionApplicationCommandResponseData{
+								Content: "Logs can only be outputted into a text channel.",
+							},
+						})
+						return
+					}
+				}
+			}
+
+			filter := bson.M{
+				"guild_id":    g.ID,
+				"streamer_id": broadcaster,
 			}
 
 			var channelID string
 			if channel != nil {
 				channelID = channel.ID
+				filter["channel_id"] = channelID
 			}
 
-			v, err := redis.Client.Get(redis.Ctx, fmt.Sprintf("users:%s", streamerID)).Result()
+			broadcaster = strings.ToLower(broadcaster)
+
+			delres, err := mongo.Database.Collection("hooks").DeleteMany(mongo.Ctx, filter)
 			if err != nil {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
-					Data: &discordgo.InteractionApplicationCommandResponseData{
-						Content: "That hook doesn't exist",
-					},
-				})
-				return
-			}
-
-			if len(v) < 16 {
-				streamerID = v
-			}
-
-			val, err := redis.DeleteCallback(streamerID, g.ID, channelID)
-			if err != nil {
-				log.Errorf("redis, err=%e", err)
+				log.Errorf("mongo, err=%e", err)
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -483,50 +671,228 @@ var (
 				return
 			}
 
-			if val == -1 {
+			if delres.DeletedCount > 0 {
+				plural := ""
+				if delres.DeletedCount > 1 {
+					plural = "s"
+				}
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
-						Content: "That hook doesn't exist",
+						Content: fmt.Sprintf("The hook%s have been removed.", plural),
 					},
 				})
 				return
 			}
 
-			if val == 0 {
-				if err := api.RevokeWebhook(streamerID); err != nil {
-					log.Errorf("api, err=%e", err)
+			user := &mongo.User{}
+
+			filterOr := bson.M{
+				"$or": bson.A{
+					bson.M{"id": broadcaster},
+					bson.M{"login": broadcaster},
+				},
+			}
+
+			res := mongo.Database.Collection("users").FindOne(mongo.Ctx, filterOr)
+
+			err = res.Err()
+			if err == nil {
+				err = res.Decode(user)
+			}
+			if err == mongo.ErrNoDocuments {
+				err = nil
+				ids := []string{}
+				if _, err := strconv.ParseInt(broadcaster, 10, 64); err == nil {
+					ids = append(ids, broadcaster)
 				}
+
+				users, err := api.GetUsers("", ids, []string{broadcaster})
+				if err != nil {
+					log.Errorf("api, err=%e", err)
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionApplicationCommandResponseData{
+							Content: "Internal server error. Please try again later.",
+						},
+					})
+					return
+				}
+				if len(users) == 0 {
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionApplicationCommandResponseData{
+							Content: "The specified user does not exist.",
+						},
+					})
+					return
+				}
+				u := users[0]
+				opts := options.Update().SetUpsert(true)
+				user = &mongo.User{
+					ID:    u.ID,
+					Name:  u.DisplayName,
+					Login: u.Login,
+				}
+				if _, err := mongo.Database.Collection("users").UpdateOne(mongo.Ctx, filterOr, bson.M{"$set": user}, opts); err != nil {
+					log.Errorf("mongo, err=%e", err)
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionApplicationCommandResponseData{
+							Content: "Internal server error. Please try again later.",
+						},
+					})
+					return
+				}
+			}
+
+			if err != nil {
+				log.Errorf("mongo, err=%e", err)
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionApplicationCommandResponseData{
+						Content: "Internal server error. Please try again later.",
+					},
+				})
+				return
+			}
+
+			filter["streamer_id"] = user.ID
+
+			delres, err = mongo.Database.Collection("hooks").DeleteMany(mongo.Ctx, filter)
+			if err != nil {
+				log.Errorf("mongo, err=%e", err)
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionApplicationCommandResponseData{
+						Content: "Internal server error. Please try again later.",
+					},
+				})
+				return
+			}
+
+			if delres.DeletedCount > 0 {
+				plural := ""
+				if delres.DeletedCount > 1 {
+					plural = "s"
+				}
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionApplicationCommandResponseData{
+						Content: fmt.Sprintf("The hook%s have been removed.", plural),
+					},
+				})
+
+				val, err := redis.Client.DecrBy(redis.Ctx, fmt.Sprintf("streamers:%s", user.ID), delres.DeletedCount).Result()
+				if err != nil {
+					log.Errorf("redis, err=%e", err)
+				} else if val == 0 {
+					if err := api.RevokeWebhook(user.ID); err != nil {
+						log.Errorf("api, err=%e", err)
+					}
+				}
+				return
 			}
 
 			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionApplicationCommandResponseData{
-					Content: "The hook has been removed.",
+					Content: "That hook doesn't exist",
 				},
 			})
 		}),
 		"ignore": validationWrapper(func(s *discordgo.Session, i *discordgo.InteractionCreate, g *discordgo.Guild) {
-			userID := i.Data.Options[0].StringValue()
-			if len(userID) > 16 {
+			var userInput string
+
+			for _, o := range i.Data.Options {
+				if o.Name == "user" {
+					userInput = o.StringValue()
+				}
+			}
+
+			if userInput == "" {
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
-						Content: fmt.Sprintf("Please enter a valid twitch id."),
+						Content: fmt.Sprintf("Please enter a valid user."),
 					},
 				})
 				return
 			}
-			if _, err := strconv.ParseInt(userID, 10, 64); err != nil {
+
+			user := &mongo.User{}
+
+			filterOr := bson.M{
+				"$or": bson.A{
+					bson.M{"id": userInput},
+					bson.M{"login": userInput},
+				},
+			}
+
+			res := mongo.Database.Collection("users").FindOne(mongo.Ctx, filterOr)
+
+			err := res.Err()
+			if err == nil {
+				err = res.Decode(user)
+			}
+			if err == mongo.ErrNoDocuments {
+				err = nil
+				ids := []string{}
+				if _, err := strconv.ParseInt(userInput, 10, 64); err == nil {
+					ids = append(ids, userInput)
+				}
+
+				users, err := api.GetUsers("", ids, []string{userInput})
+				if err != nil {
+					log.Errorf("api, err=%e", err)
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionApplicationCommandResponseData{
+							Content: "Internal server error. Please try again later.",
+						},
+					})
+					return
+				}
+				if len(users) == 0 {
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionApplicationCommandResponseData{
+							Content: "The specified user does not exist.",
+						},
+					})
+					return
+				}
+				u := users[0]
+				opts := options.Update().SetUpsert(true)
+				user = &mongo.User{
+					ID:    u.ID,
+					Name:  u.DisplayName,
+					Login: u.Login,
+				}
+				if _, err := mongo.Database.Collection("users").UpdateOne(mongo.Ctx, filterOr, bson.M{"$set": user}, opts); err != nil {
+					log.Errorf("mongo, err=%e", err)
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionApplicationCommandResponseData{
+							Content: "Internal server error. Please try again later.",
+						},
+					})
+					return
+				}
+			}
+
+			if err != nil {
+				log.Errorf("mongo, err=%e", err)
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
-						Content: fmt.Sprintf("Please enter a valid twitch id."),
+						Content: "Internal server error. Please try again later.",
 					},
 				})
 				return
 			}
-			if err := redis.Client.HSet(redis.Ctx, fmt.Sprintf("ignored-users:%s", g.ID), userID, "1").Err(); err != nil {
+
+			if err := redis.Client.SAdd(redis.Ctx, fmt.Sprintf("ignored-users:%s", g.ID), user.ID).Err(); err != nil {
 				log.Errorf("redis, err=%e", err)
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -539,31 +905,102 @@ var (
 			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionApplicationCommandResponseData{
-					Content: fmt.Sprintf("Successfully ignored user."),
+					Content: fmt.Sprintf("Successfully ignored `%s`.", user.Name),
 				},
 			})
 		}),
 		"unignore": validationWrapper(func(s *discordgo.Session, i *discordgo.InteractionCreate, g *discordgo.Guild) {
-			userID := i.Data.Options[0].StringValue()
-			if len(userID) > 16 {
+			var userInput string
+
+			for _, o := range i.Data.Options {
+				if o.Name == "user" {
+					userInput = o.StringValue()
+				}
+			}
+
+			if userInput == "" {
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
-						Content: fmt.Sprintf("Please enter a valid twitch id."),
+						Content: fmt.Sprintf("Please enter a valid user."),
 					},
 				})
 				return
 			}
-			if _, err := strconv.ParseInt(userID, 10, 64); err != nil {
+
+			user := &mongo.User{}
+
+			filterOr := bson.M{
+				"$or": bson.A{
+					bson.M{"id": userInput},
+					bson.M{"login": userInput},
+				},
+			}
+
+			res := mongo.Database.Collection("users").FindOne(mongo.Ctx, filterOr)
+
+			err := res.Err()
+			if err == nil {
+				err = res.Decode(user)
+			}
+			if err == mongo.ErrNoDocuments {
+				err = nil
+				ids := []string{}
+				if _, err := strconv.ParseInt(userInput, 10, 64); err == nil {
+					ids = append(ids, userInput)
+				}
+
+				users, err := api.GetUsers("", ids, []string{userInput})
+				if err != nil {
+					log.Errorf("api, err=%e", err)
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionApplicationCommandResponseData{
+							Content: "Internal server error. Please try again later.",
+						},
+					})
+					return
+				}
+				if len(users) == 0 {
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionApplicationCommandResponseData{
+							Content: "The specified user does not exist.",
+						},
+					})
+					return
+				}
+				u := users[0]
+				opts := options.Update().SetUpsert(true)
+				user = &mongo.User{
+					ID:    u.ID,
+					Name:  u.DisplayName,
+					Login: u.Login,
+				}
+				if _, err := mongo.Database.Collection("users").UpdateOne(mongo.Ctx, filterOr, bson.M{"$set": user}, opts); err != nil {
+					log.Errorf("mongo, err=%e", err)
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionApplicationCommandResponseData{
+							Content: "Internal server error. Please try again later.",
+						},
+					})
+					return
+				}
+			}
+
+			if err != nil {
+				log.Errorf("mongo, err=%e", err)
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
-						Content: fmt.Sprintf("Please enter a valid twitch id."),
+						Content: "Internal server error. Please try again later.",
 					},
 				})
 				return
 			}
-			if err := redis.Client.HDel(redis.Ctx, fmt.Sprintf("ignored-users:%s", g.ID), userID).Err(); err != nil {
+
+			if err := redis.Client.SRem(redis.Ctx, fmt.Sprintf("ignored-users:%s", g.ID), user.ID).Err(); err != nil {
 				log.Errorf("redis, err=%e", err)
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -576,16 +1013,18 @@ var (
 			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionApplicationCommandResponseData{
-					Content: fmt.Sprintf("Successfully unignored user."),
+					Content: fmt.Sprintf("Successfully unignored `%s`.", user.Name),
 				},
 			})
 		}),
 		"ignored": validationWrapper(func(s *discordgo.Session, i *discordgo.InteractionCreate, g *discordgo.Guild) {
-			val, err := redis.Client.HKeys(redis.Ctx, fmt.Sprintf("ignored-users:%s", g.ID)).Result()
-			if err != nil {
+			val, err := redis.Client.SMembers(redis.Ctx, fmt.Sprintf("ignored-users:%s", g.ID)).Result()
+			if err != nil || len(val) == 0 {
 				msg := "Internal server error."
-				if err == redis.ErrNil {
+				if err == redis.ErrNil || len(val) == 0 {
 					msg = "There are no ignored users."
+				} else {
+					log.Errorf("redis, err=%e", err)
 				}
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -595,10 +1034,91 @@ var (
 				})
 				return
 			}
+			// We have a bunch of ids...
+			opts := options.Update().SetUpsert(true)
+
+			filter := bson.M{
+				"id": bson.M{
+					"$in": val,
+				},
+			}
+
+			users := []*mongo.User{}
+
+			cur, err := mongo.Database.Collection("users").Find(mongo.Ctx, filter)
+			if err == nil {
+				err = cur.All(mongo.Ctx, &users)
+			}
+			if err != nil {
+				log.Errorf("mongo, err=%e", err)
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionApplicationCommandResponseData{
+						Content: "Internal server error. Please try again later.",
+					},
+				})
+				return
+			}
+
+			if len(users) != len(val) {
+				// find missing ones
+				missingIDs := []string{}
+				for _, id := range val {
+					found := false
+					for _, u := range users {
+						if u.ID == id {
+							found = true
+							break
+						}
+					}
+					if !found {
+						missingIDs = append(missingIDs, id)
+					}
+				}
+				apiUsers, err := api.GetUsers("", missingIDs, nil)
+				if err != nil {
+					log.Errorf("api, err=%e", err)
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionApplicationCommandResponseData{
+							Content: "Internal server error. Please try again later.",
+						},
+					})
+				}
+				wg := sync.WaitGroup{}
+				wg.Add(len(apiUsers))
+
+				for _, u := range apiUsers {
+					go func(u api.TwitchUser) {
+						defer wg.Done()
+						user := &mongo.User{
+							ID:    u.ID,
+							Name:  u.DisplayName,
+							Login: u.Login,
+						}
+						users = append(users, user)
+						if _, err := mongo.Database.Collection("users").UpdateOne(mongo.Ctx, bson.M{
+							"$or": bson.A{
+								bson.M{"id": u.ID},
+								bson.M{"login": u.Login},
+							},
+						}, bson.M{"$set": user}, opts); err != nil {
+							log.Errorf("mongo, err=%e", err)
+						}
+					}(u)
+				}
+				wg.Done()
+			}
+
+			usrStr := make([]string, len(users))
+			for i, user := range users {
+				usrStr[i] = user.Name
+			}
+
 			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionApplicationCommandResponseData{
-					Content: fmt.Sprintf("Ignored Users: %s", strings.Join(val, ", ")),
+					Content: fmt.Sprintf("Ignored Users: %s", strings.Join(usrStr, ", ")),
 				},
 			})
 		}),
@@ -606,7 +1126,7 @@ var (
 			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionApplicationCommandResponseData{
-					Content: fmt.Sprintf("You can invite me to a server using <%s>\nOr you create a hook by <%s/login>", configure.Config.GetString("website_url"), configure.Config.GetString("website_url")),
+					Content: fmt.Sprintf("This bot can be invited to a server by going to <%s/login>.\nThis is an bot is free and opensource, <https://github.com/troydota/modlogs>", configure.Config.GetString("website_url")),
 				},
 			})
 		},
@@ -622,7 +1142,15 @@ func New() *Bot {
 
 	// Register the messageCreate func as a callback for MessageCreate events.
 	dg.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
-		log.Infoln("Bot is up!")
+		log.Infof("Bot is up - Connected to %v guilds", len(s.State.Guilds))
+	})
+
+	dg.AddHandler(func(s *discordgo.Session, r *discordgo.GuildCreate) {
+		log.Debugf("Bot joined - %s (%s)", r.Name, r.ID)
+	})
+
+	dg.AddHandler(func(s *discordgo.Session, r *discordgo.GuildDelete) {
+		log.Debugf("Bot left - %s (%s)", r.Name, r.ID)
 	})
 
 	dg.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -642,18 +1170,23 @@ func New() *Bot {
 		conn:     dg,
 		commands: []*cmdWrapper{},
 		stopped:  make(chan struct{}),
+		limiter:  newLimiter(),
 	}
 
-	for _, v := range commands {
-		c, err := dg.ApplicationCommandCreate(dg.State.User.ID, "", v)
-		if err != nil {
-			panic(fmt.Errorf("Cannot create '%v' command: %v", v.Name, err))
-		}
-		bot.commands = append(bot.commands, &cmdWrapper{
-			cmd:     c,
-			conn:    dg,
-			guildID: "",
-		})
+	if configure.Config.GetBool("rebuild_commands") {
+		go func() {
+			for _, v := range commands {
+				c, err := dg.ApplicationCommandCreate(dg.State.User.ID, "", v)
+				if err != nil {
+					panic(fmt.Errorf("Cannot create '%v' command: %v", v.Name, err))
+				}
+				bot.commands = append(bot.commands, &cmdWrapper{
+					cmd:     c,
+					conn:    dg,
+					guildID: "",
+				})
+			}
+		}()
 	}
 
 	go func() {
@@ -671,14 +1204,20 @@ func New() *Bot {
 }
 
 func (b *Bot) processCallback(cb WebhookRequest) {
-	callbacks, err := redis.GetCallbacks(cb.BroadcasterID)
+	hooks := []*mongo.Hook{}
+
+	cur, err := mongo.Database.Collection("hooks").Find(mongo.Ctx, bson.M{"streamer_id": cb.BroadcasterID})
+	if err == nil {
+		err = cur.All(mongo.Ctx, &hooks)
+	}
+
 	if err != nil {
-		log.Errorf("redis, err=%s", err)
+		log.Errorf("mongo, err=%s", err)
 		return
 	}
 
 	wg := &sync.WaitGroup{}
-	wg.Add(len(callbacks))
+	wg.Add(len(hooks))
 
 	var color int
 	var title string
@@ -758,113 +1297,96 @@ func (b *Bot) processCallback(cb WebhookRequest) {
 
 	minimalText := fmt.Sprintf("**%s: #%s** - `%s` executed `/%s`", title, cb.BroadcasterUserName, strings.ReplaceAll(executer, "`", ""), strings.ReplaceAll(cmd, "`", ""))
 
-	for _, c := range callbacks {
-		go func(c interface{}) {
+	for _, hook := range hooks {
+		go func(hook *mongo.Hook) {
 			defer wg.Done()
-			cbs, ok := c.([]interface{})
-			if !ok {
-				log.Warnf("invalid, resp from redis %v", spew.Sdump(c))
-				return
-			}
-			guildID, ok := cbs[0].(string)
-			if !ok {
-				log.Warnf("invalid, resp from redis %v", spew.Sdump(c))
-				return
-			}
-			channelIDs, ok := cbs[1].([]interface{})
-			if !ok {
-				log.Warnf("invalid, resp from redis %v", spew.Sdump(c))
-				return
-			}
+
 			found := false
 			for _, g := range b.conn.State.Guilds {
-				if g.ID == guildID {
+				if g.ID == hook.GuildID {
 					found = true
 				}
 			}
 			if !found {
-				val, err := redis.DeleteCallback(cb.BroadcasterID, guildID, "")
+				_, err := mongo.Database.Collection("hooks").DeleteOne(mongo.Ctx, bson.M{
+					"guild_id":    hook.GuildID,
+					"channel_id":  hook.ChannelID,
+					"streamer_id": hook.StreamerID,
+				})
 				if err != nil {
-					log.Errorf("redis, err=%e", err)
+					log.Errorf("mongo, err=%e, hook=%v", err, hook)
+					return
+				}
+				val, err := redis.Client.Decr(redis.Ctx, fmt.Sprintf("streamers:%s", hook.StreamerID)).Result()
+				if err != nil {
+					log.Errorf("redis, err=%e, hook=%v", err, hook)
 					return
 				}
 				if val == 0 {
 					if err := api.RevokeWebhook(cb.BroadcasterID); err != nil {
-						log.Errorf("api, err=%e", err)
+						log.Errorf("api, err=%e, hook=%v", err, hook)
 					}
 					return
 				}
 			}
 
-			if redis.Client.HExists(redis.Ctx, fmt.Sprintf("ignored-users:%s", guildID), executerID).Val() {
+			if redis.Client.SIsMember(redis.Ctx, fmt.Sprintf("ignored-users:%s", hook.GuildID), executerID).Val() {
 				return
 			}
 
-			wg2 := &sync.WaitGroup{}
-			wg2.Add(len(channelIDs))
-
-			for _, cid := range channelIDs {
-				if v, ok := cid.([]interface{}); ok {
-					channelID, ok := v[0].(string)
-					if !ok {
-						wg2.Done()
-						log.Warnf("invalid redis resp, resp=%s", spew.Sdump(v))
-						continue
+			var err error
+			if hook.Mode == mongo.ModeEmbed {
+				if result := b.limiter.Limit(hook.ChannelID, "", func(c string) bool {
+					return false
+				}); result {
+					_, err = b.conn.ChannelMessageSendEmbed(hook.ChannelID, embed)
+				}
+			} else {
+				mtx := &sync.Mutex{}
+				if result := b.limiter.Limit(hook.ChannelID, minimalText, func(c string) bool {
+					mtx.Lock()
+					defer mtx.Unlock()
+					newMessage := fmt.Sprintf("%s\n%s", minimalText, c)
+					if len(newMessage) < 2000 {
+						minimalText = newMessage
+						return true
 					}
-					mode, ok := v[1].(int64)
-					if !ok {
-						wg2.Done()
-						log.Warnf("invalid redis resp, resp=%s", spew.Sdump(v))
-						continue
-					}
-					go func(cid string, mode int64) {
-						defer wg2.Done()
-						var err error
-						if mode == 1 {
-							_, err = b.conn.ChannelMessageSendEmbed(cid, embed)
-						} else {
-							_, err = b.conn.ChannelMessageSend(cid, minimalText)
-						}
-						if err != nil {
-							log.Errorf("discord, err=%e", err)
-							val, err := redis.DeleteCallback(cb.BroadcasterID, guildID, cid)
-							if err != nil {
-								log.Errorf("redis, err=%e", err)
-								return
-							}
-							if val == 0 {
-								if err := api.RevokeWebhook(cb.BroadcasterID); err != nil {
-									log.Errorf("api, err=%e", err)
-								}
-								return
-							}
-						}
-					}(channelID, mode)
-				} else {
-					wg2.Done()
-					log.Warnf("invalid redis resp, resp=%s", spew.Sdump(cid))
+					return false
+				}); result {
+					_, err = b.conn.ChannelMessageSend(hook.ChannelID, minimalText)
 				}
 			}
-			wg2.Wait()
-		}(c)
+			if err != nil {
+				log.Errorf("discord, err=%e, hook=%v", err, hook)
+
+				_, err := mongo.Database.Collection("hooks").DeleteOne(mongo.Ctx, bson.M{
+					"guild_id":    hook.GuildID,
+					"channel_id":  hook.ChannelID,
+					"streamer_id": hook.StreamerID,
+				})
+				if err != nil {
+					log.Errorf("mongo, err=%e, hook=%v", err, hook)
+					return
+				}
+				val, err := redis.Client.Decr(redis.Ctx, fmt.Sprintf("streamers:%s", hook.StreamerID)).Result()
+				if err != nil {
+					log.Errorf("redis, err=%e, hook=%v", err, hook)
+					return
+				}
+				if val == 0 {
+					if err := api.RevokeWebhook(cb.BroadcasterID); err != nil {
+						log.Errorf("api, err=%e, hook=%v", err, hook)
+					}
+					return
+				}
+			}
+		}(hook)
 	}
 
 	wg.Wait()
 }
 
 func (b *Bot) Shutdown() error {
-	// wg := &sync.WaitGroup{}
-	// wg.Add(len(b.commands))
 	close(b.stopped)
-	// for _, c := range b.commands {
-	// 	go func(c *cmdWrapper) {
-	// 		defer wg.Done()
-	// 		err := c.Delete()
-	// 		if err != nil {
-	// 			log.Errorf("cmd, err=%e", err)
-	// 		}
-	// 	}(c)
-	// }
-	// wg.Wait()
 	return b.conn.Close()
 }

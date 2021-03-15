@@ -27,30 +27,6 @@ func init() {
 		panic(err)
 	}
 	tokenConsumerLuaScriptSHA1 = v
-
-	v, err = Client.ScriptLoad(Ctx, createCallbackLuaScript).Result()
-	if err != nil {
-		panic(err)
-	}
-	createCallbackLuaScriptSHA1 = v
-
-	v, err = Client.ScriptLoad(Ctx, deleteCallbackLuaScript).Result()
-	if err != nil {
-		panic(err)
-	}
-	deleteCallbackLuaScriptSHA1 = v
-
-	v, err = Client.ScriptLoad(Ctx, getCallbacksLuaScript).Result()
-	if err != nil {
-		panic(err)
-	}
-	getCallbacksLuaScriptSHA1 = v
-
-	v, err = Client.ScriptLoad(Ctx, getGuildCallbacksLuaScript).Result()
-	if err != nil {
-		panic(err)
-	}
-	getGuildCallbacksLuaScriptSHA1 = v
 }
 
 var Client *redis.Client

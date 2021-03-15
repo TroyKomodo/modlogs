@@ -15,7 +15,7 @@ end
 
 redis.call("DEL", "temp:codes:" .. token)
 
-return redis.call("GET", "users:" .. userID)
+return userID
 `
 
 var (

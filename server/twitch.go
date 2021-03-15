@@ -13,8 +13,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/troydota/modlogs/bot"
+	"github.com/troydota/modlogs/mongo"
 	"github.com/troydota/modlogs/redis"
 	"github.com/troydota/modlogs/session"
 	"github.com/troydota/modlogs/utils"
@@ -201,9 +204,9 @@ func Twitch(app fiber.Router) fiber.Router {
 
 		data, _ = json.Marshal(tokenResp)
 
-		users, err := api.GetUsers(tokenResp.AccessToken)
+		users, err := api.GetUsers(tokenResp.AccessToken, nil, nil)
 		if err != nil || len(users) != 1 {
-			log.Errorf("twitch, err=%e, resp=%v", err, users)
+			log.Errorf("twitch, err=%e, resp=%v, token=%v", err, users, tokenResp)
 			return c.Status(400).JSON(&fiber.Map{
 				"status":  400,
 				"message": "Invalid response from twitch, failed to convert access token to user account.",
@@ -212,20 +215,26 @@ func Twitch(app fiber.Router) fiber.Router {
 
 		user := users[0]
 
-		pipe := redis.Client.Pipeline()
-
 		exp := int64(math.Floor(float64(tokenResp.ExpiresIn) * 0.7))
 
-		pipe.HSet(redis.Ctx, "oauth:streamer", user.ID, fmt.Sprintf("%v %s", time.Now().Unix()+exp, string(data)))
-
-		userData, _ := json.MarshalToString(user)
-
-		pipe.Do(redis.Ctx, "SET", fmt.Sprintf("users:%s", user.ID), string(userData))
-		if user.ID != user.Login {
-			pipe.Do(redis.Ctx, "SET", fmt.Sprintf("users:%s", user.Login), user.ID)
+		opts := options.Update().SetUpsert(true)
+		mUser := &mongo.User{
+			ID:    user.ID,
+			Name:  user.DisplayName,
+			Login: user.Login,
+		}
+		if _, err := mongo.Database.Collection("users").UpdateOne(mongo.Ctx, bson.M{"$or": bson.A{
+			bson.M{"id": user.ID},
+			bson.M{"login": user.Login},
+		}}, bson.M{"$set": mUser}, opts); err != nil {
+			log.Errorf("mongo, err=%e", err)
+			return c.Status(500).JSON(&fiber.Map{
+				"status":  500,
+				"message": "Failed to save user data.",
+			})
 		}
 
-		if _, err := pipe.Exec(redis.Ctx); err != nil {
+		if err := redis.Client.HSet(redis.Ctx, "oauth:streamer", user.ID, fmt.Sprintf("%v %s", time.Now().Unix()+exp, string(data))).Err(); err != nil {
 			log.Errorf("redis pipe, err=%e", err)
 			return c.Status(500).JSON(&fiber.Map{
 				"status":  500,
@@ -235,15 +244,14 @@ func Twitch(app fiber.Router) fiber.Router {
 
 		authCode, _ := uuid.NewRandom()
 
-		pipe.SetNX(redis.Ctx, fmt.Sprintf("temp:codes:%s", authCode), user.ID, time.Second*300)
-
-		if _, err := pipe.Exec(redis.Ctx); err != nil {
+		if err := redis.Client.SetNX(redis.Ctx, fmt.Sprintf("temp:codes:%s", authCode), user.ID, time.Second*300).Err(); err != nil {
 			log.Errorf("redis pipe, err=%e", err)
 			return c.Status(500).JSON(&fiber.Map{
 				"status":  500,
 				"message": "Failed to save temp secret.",
 			})
 		}
+
 		c.Set("Content-Type", "text/html")
 
 		jsonData, _ := json.MarshalIndent(fiber.Map{
@@ -277,8 +285,8 @@ func Twitch(app fiber.Router) fiber.Router {
 
 	app.Post("/webhook/:type/:id", func(c *fiber.Ctx) error {
 		key := fmt.Sprintf("webhook:twitch:%s:%s", c.Params("type"), c.Params("id"))
-		keyID := fmt.Sprintf("%s:id", key)
-		res, err := redis.Client.Get(redis.Ctx, key).Result()
+
+		res, err := redis.Client.HGet(redis.Ctx, key, "secret").Result()
 		if err != nil {
 			if err != redis.ErrNil {
 				log.Errorf("redis, err=%e", err)
@@ -319,7 +327,7 @@ func Twitch(app fiber.Router) fiber.Router {
 		}
 
 		newKey := fmt.Sprintf("twitch:events:%s:%s:%s", c.Params("type"), c.Params("id"), msgID)
-		err = redis.Client.Do(redis.Ctx, "SET", newKey, "1", "NX", "EX", 24*60*60).Err()
+		err = redis.Client.Do(redis.Ctx, "SET", newKey, "1", "NX", "EX", 30*60).Err()
 		if err != nil {
 			if err != redis.ErrNil {
 				log.Errorf("redis, err=%e", err)
@@ -349,7 +357,6 @@ func Twitch(app fiber.Router) fiber.Router {
 		if callback.Subscription.Status == "authorization_revoked" {
 			pipe := redis.Client.Pipeline()
 			pipe.Del(redis.Ctx, key)
-			pipe.Del(redis.Ctx, keyID)
 			if _, err := pipe.Exec(redis.Ctx); err != nil {
 				log.Errorf("redis, err=%e", err)
 			}
@@ -357,7 +364,7 @@ func Twitch(app fiber.Router) fiber.Router {
 		}
 
 		if callback.Challenge != "" {
-			if err := redis.Client.Set(redis.Ctx, keyID, callback.Subscription.ID, -1).Err(); err != nil {
+			if err := redis.Client.HSet(redis.Ctx, key, "id", callback.Subscription.ID).Err(); err != nil {
 				log.Errorf("redis, err=%e")
 				return cleanUp(500, "")
 			}

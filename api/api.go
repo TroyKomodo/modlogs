@@ -38,156 +38,105 @@ type TwitchUser struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
-type TwitchChannelResp struct {
-	Data []TwitchChannel `json:"data"`
-}
+func GetUsers(oauth string, ids []string, logins []string) ([]TwitchUser, error) {
+	returnv := []TwitchUser{}
+	for len(ids) != 0 || len(logins) != 0 {
+		var temp []string
+		var temp2 []string
+		if len(ids) > 100 {
+			temp = ids[:100]
+			ids = ids[100:]
+		} else {
+			temp = ids
+			ids = []string{}
+			if len(logins)+len(temp) > 100 {
+				temp2 = logins[:100-len(temp)]
+				logins = logins[100-len(temp):]
+			} else {
+				temp2 = logins
+				logins = []string{}
+			}
+		}
 
-type TwitchChannel struct {
-	BroadcasterID       string `json:"broadcaster_id"`
-	BroadcasterLogin    string `json:"broadcaster_login"`
-	BroadcasterName     string `json:"broadcaster_name"`
-	BroadcasterLanguage string `json:"broadcaster_language"`
-	GameID              string `json:"game_id"`
-	GameName            string `json:"game_name"`
-	Title               string `json:"title"`
-}
+		params, _ := qs.Marshal(map[string][]string{
+			"id":    temp,
+			"login": temp2,
+		})
 
-type TwitchGamesResp struct {
-	Data []TwitchGame `json:"data"`
-}
+		u, _ := url.Parse(fmt.Sprintf("https://api.twitch.tv/helix/users?%s", params))
 
-type TwitchGame struct {
-	BoxArtURL string `json:"box_art_url"`
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-}
+		var token string
+		var err error
 
-func GetUsers(oauth string, ids ...string) ([]TwitchUser, error) {
-	params, _ := qs.Marshal(map[string][]string{
-		"id": ids,
-	})
+		if oauth == "" {
+			token, err = auth.GetAuth()
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			token = oauth
+		}
 
-	u, _ := url.Parse(fmt.Sprintf("https://api.twitch.tv/helix/users?%s", params))
-
-	var token string
-	var err error
-
-	if oauth == "" {
-		token, err = auth.GetAuth()
+		resp, err := http.DefaultClient.Do(&http.Request{
+			Method: "GET",
+			URL:    u,
+			Header: http.Header{
+				"Client-Id":     []string{configure.Config.GetString("twitch_client_id")},
+				"Authorization": []string{fmt.Sprintf("Bearer %s", token)},
+			},
+		})
 		if err != nil {
 			return nil, err
 		}
-	} else {
-		token = oauth
+
+		defer resp.Body.Close()
+
+		data, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+
+		respData := TwitchUserResp{}
+
+		if err := json.Unmarshal(data, &respData); err != nil {
+			return nil, err
+		}
+		returnv = append(returnv, respData.Data...)
 	}
 
-	resp, err := http.DefaultClient.Do(&http.Request{
-		Method: "GET",
-		URL:    u,
-		Header: http.Header{
-			"Client-Id":     []string{configure.Config.GetString("twitch_client_id")},
-			"Authorization": []string{fmt.Sprintf("Bearer %s", token)},
-		},
-	})
-	if err != nil {
-		return nil, err
+	if oauth != "" && len(ids) == 0 && len(logins) == 0 {
+		u, _ := url.Parse("https://api.twitch.tv/helix/users")
+
+		var err error
+
+		resp, err := http.DefaultClient.Do(&http.Request{
+			Method: "GET",
+			URL:    u,
+			Header: http.Header{
+				"Client-Id":     []string{configure.Config.GetString("twitch_client_id")},
+				"Authorization": []string{fmt.Sprintf("Bearer %s", oauth)},
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		defer resp.Body.Close()
+
+		data, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+
+		respData := TwitchUserResp{}
+
+		if err := json.Unmarshal(data, &respData); err != nil {
+			return nil, err
+		}
+		return respData.Data, nil
 	}
 
-	defer resp.Body.Close()
-
-	data, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	respData := TwitchUserResp{}
-
-	if err := json.Unmarshal(data, &respData); err != nil {
-		return nil, err
-	}
-
-	return respData.Data, nil
-
-}
-
-func GetChannels(ids ...string) ([]TwitchChannel, error) {
-	params, _ := qs.Marshal(map[string][]string{
-		"broadcaster_id": ids,
-	})
-
-	u, _ := url.Parse(fmt.Sprintf("https://api.twitch.tv/helix/channels?%s", params))
-
-	token, err := auth.GetAuth()
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := http.DefaultClient.Do(&http.Request{
-		Method: "GET",
-		URL:    u,
-		Header: http.Header{
-			"Client-Id":     []string{configure.Config.GetString("twitch_client_id")},
-			"Authorization": []string{fmt.Sprintf("Bearer %s", token)},
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	defer resp.Body.Close()
-
-	data, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	respData := TwitchChannelResp{}
-
-	if err := json.Unmarshal(data, &respData); err != nil {
-		return nil, err
-	}
-
-	return respData.Data, nil
-}
-
-func GetGames(ids ...string) ([]TwitchGame, error) {
-	params, _ := qs.Marshal(map[string][]string{
-		"id": ids,
-	})
-
-	u, _ := url.Parse(fmt.Sprintf("https://api.twitch.tv/helix/games?%s", params))
-
-	token, err := auth.GetAuth()
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := http.DefaultClient.Do(&http.Request{
-		Method: "GET",
-		URL:    u,
-		Header: http.Header{
-			"Client-Id":     []string{configure.Config.GetString("twitch_client_id")},
-			"Authorization": []string{fmt.Sprintf("Bearer %s", token)},
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	defer resp.Body.Close()
-
-	data, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	respData := TwitchGamesResp{}
-
-	if err := json.Unmarshal(data, &respData); err != nil {
-		return nil, err
-	}
-
-	return respData.Data, nil
+	return returnv, nil
 }
 
 // {
@@ -284,9 +233,13 @@ func CreateWebhooks(streamerID string) error {
 	wg.Add(len(hooks))
 	mtx := sync.Mutex{}
 	for _, h := range hooks {
-		pipe.Set(redis.Ctx, fmt.Sprintf("webhook:twitch:%s:%s", h.t, streamerID), secret, -1)
+		key := fmt.Sprintf("webhook:twitch:%s:%s", h.t, streamerID)
+		cmd := pipe.HSet(redis.Ctx, key, "secret", secret)
 		go func(t, v string) {
 			<-redisCb
+			if err := cmd.Err(); err != nil {
+				log.Errorf("redis, err=%e, key=%s", err, key)
+			}
 			defer wg.Done()
 			if errored {
 				return
@@ -361,7 +314,7 @@ func RevokeWebhook(streamerID string) error {
 	wg.Add(len(hooks))
 	mtx := sync.Mutex{}
 	for _, h := range hooks {
-		cmd := pipe.Get(redis.Ctx, fmt.Sprintf("webhook:twitch:%s:%s:id", h, streamerID))
+		cmd := pipe.HGet(redis.Ctx, fmt.Sprintf("webhook:twitch:%s:%s", h, streamerID), "id")
 		go func(cmd *redis.StringCmd) {
 			<-redisCb
 			defer wg.Done()

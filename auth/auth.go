@@ -78,7 +78,7 @@ func GetAuth() (string, error) {
 
 	expiry := time.Second * time.Duration(int64(float64(resData.ExpiresIn)*0.75))
 
-	if err := redis.Client.SetNX(redis.Ctx, "twitch:vods:auth", auth, expiry).Err(); err != nil {
+	if err := redis.Client.SetNX(redis.Ctx, "twitch:auth", auth, expiry).Err(); err != nil {
 		log.Errorf("redis, err=%e", err)
 	}
 

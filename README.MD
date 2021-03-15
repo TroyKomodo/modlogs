@@ -2,8 +2,8 @@
 
 ## Using the global version
 
-1. Go to the website https://komodohype.dev and add the bot to your discord.
-2. Ask your streamer to go to the website https://komodohype.dev/login and copy the command that it returns and patse it your discord channel.
+1. Go to the website https://modlogs.komodohype.dev and add the bot to your discord.
+2. Ask your streamer to go to the website https://modlogs.komodohype.dev/login and copy the command that it returns and patse it your discord channel.
 3. You can have a maximum of 10 hooks per discord. If you need more you can dm me on discord Troy#0003
 
 If you find any questions, feature requests, bugs, issues or an error is thrown, please make an issue [here](https://github.com/TroyDota/modlogs/issues).

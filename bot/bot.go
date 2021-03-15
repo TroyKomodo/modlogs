@@ -228,7 +228,7 @@ var (
 			mode := mongo.ModeMinimal
 
 			for _, o := range i.Data.Options {
-				if o.Name == "minmal" {
+				if o.Name == "minimal" {
 					if !o.BoolValue() {
 						mode = mongo.ModeEmbed
 					}

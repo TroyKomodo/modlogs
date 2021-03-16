@@ -26,5 +26,7 @@ discord_bot_token: ""
 
 max_hooks_per_guild: 10
 
+rebuild_commands: false
+
 admins:
   - "discord-user-id"

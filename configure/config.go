@@ -28,6 +28,7 @@ type ServerCfg struct {
 	DiscordBotToken    string   `mapstructure:"discord_bot_token"`
 	Admins             []string `mapstructure:"admins"`
 	MaxHooksPerGuild   int      `mapstructure:"max_hooks_per_guild"`
+	RebuildCommands    bool     `mapstructure:"rebuild_commands"`
 	ExitCode           int      `mapstructure:"exit_code"`
 }
 
@@ -72,6 +73,7 @@ func init() {
 	pflag.String("discord_invite", "", "The invite url for the discord bot.")
 	pflag.String("discord_bot_token", "", "The discord bot token.")
 	pflag.Int("max_hooks_per_guild", 10, "Max number of hooks per guild.")
+	pflag.Bool("rebuild_commands", false, "Recreate or create the discord commands initially.")
 	pflag.String("version", "1.0", "Version of the system.")
 	pflag.StringSlice("admins", []string{}, "Ids of global bot admins.")
 	pflag.Int("exit_code", 0, "Status code for successful and graceful shutdown, [0-125].")

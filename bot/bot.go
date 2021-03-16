@@ -83,6 +83,8 @@ var validationWrapper = func(next func(s *discordgo.Session, i *discordgo.Intera
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionApplicationCommandResponseData{
 					Content: "Internal Server Error. Please try again later...",
+					// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+					Flags: 64,
 				},
 			})
 			return
@@ -125,6 +127,8 @@ var validationWrapper = func(next func(s *discordgo.Session, i *discordgo.Intera
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionApplicationCommandResponseData{
 					Content: "You do not have permission to execute that command.",
+					// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+					Flags: 64,
 				},
 			})
 		}
@@ -239,6 +243,8 @@ var (
 							Type: discordgo.InteractionResponseChannelMessageWithSource,
 							Data: &discordgo.InteractionApplicationCommandResponseData{
 								Content: "Logs can only be outputted into a text channel.",
+								// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+								Flags: 64,
 							},
 						})
 						return
@@ -260,6 +266,8 @@ var (
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error occured.",
+						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+						Flags: 64,
 					},
 				})
 			}
@@ -276,6 +284,8 @@ var (
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: msg,
+						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+						Flags: 64,
 					},
 				})
 				return
@@ -302,6 +312,8 @@ var (
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
+							// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+							Flags: 64,
 						},
 					})
 					return
@@ -311,6 +323,8 @@ var (
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "The specified broadcaster does not exist.",
+							// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+							Flags: 64,
 						},
 					})
 					return
@@ -328,6 +342,8 @@ var (
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
+							// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+							Flags: 64,
 						},
 					})
 					return
@@ -340,6 +356,8 @@ var (
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error. Please try again later.",
+						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+						Flags: 64,
 					},
 				})
 				return
@@ -367,6 +385,8 @@ var (
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error. Please try again later.",
+						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+						Flags: 64,
 					},
 				})
 				return
@@ -392,6 +412,8 @@ var (
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: fmt.Sprintf("There are too many hooks in this discord. (%v/%v)", count, configure.Config.GetInt64("max_hooks_per_guild")),
+						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+						Flags: 64,
 					},
 				})
 				return
@@ -406,6 +428,8 @@ var (
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error. Please try again later.",
+						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+						Flags: 64,
 					},
 				})
 				return
@@ -418,6 +442,8 @@ var (
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
+							// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+							Flags: 64,
 						},
 					})
 					return
@@ -430,6 +456,8 @@ var (
 							Type: discordgo.InteractionResponseChannelMessageWithSource,
 							Data: &discordgo.InteractionApplicationCommandResponseData{
 								Content: "Internal server error. Please try again later.",
+								// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+								Flags: 64,
 							},
 						})
 						err := redis.Client.Decr(redis.Ctx, fmt.Sprintf("streamers:%s", user.ID)).Err()
@@ -464,6 +492,8 @@ var (
 							Type: discordgo.InteractionResponseChannelMessageWithSource,
 							Data: &discordgo.InteractionApplicationCommandResponseData{
 								Content: "Please select a valid channel.",
+								// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+								Flags: 64,
 							},
 						})
 						return
@@ -493,6 +523,8 @@ var (
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal Server Error.",
+						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+						Flags: 64,
 					},
 				})
 				return
@@ -529,6 +561,8 @@ var (
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error. Please try again later.",
+						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+						Flags: 64,
 					},
 				})
 				return
@@ -556,6 +590,8 @@ var (
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
+							// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+							Flags: 64,
 						},
 					})
 				}
@@ -639,6 +675,8 @@ var (
 							Type: discordgo.InteractionResponseChannelMessageWithSource,
 							Data: &discordgo.InteractionApplicationCommandResponseData{
 								Content: "Logs can only be outputted into a text channel.",
+								// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+								Flags: 64,
 							},
 						})
 						return
@@ -666,20 +704,22 @@ var (
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error. Please try again later.",
+						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+						Flags: 64,
 					},
 				})
 				return
 			}
 
 			if delres.DeletedCount > 0 {
-				plural := ""
+				plural := " has"
 				if delres.DeletedCount > 1 {
-					plural = "s"
+					plural = "s have"
 				}
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
-						Content: fmt.Sprintf("The hook%s have been removed.", plural),
+						Content: fmt.Sprintf("The hook%s been removed.", plural),
 					},
 				})
 				return
@@ -714,6 +754,8 @@ var (
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
+							// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+							Flags: 64,
 						},
 					})
 					return
@@ -723,6 +765,8 @@ var (
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "The specified user does not exist.",
+							// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+							Flags: 64,
 						},
 					})
 					return
@@ -740,6 +784,8 @@ var (
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
+							// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+							Flags: 64,
 						},
 					})
 					return
@@ -752,6 +798,8 @@ var (
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error. Please try again later.",
+						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+						Flags: 64,
 					},
 				})
 				return
@@ -766,20 +814,22 @@ var (
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error. Please try again later.",
+						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+						Flags: 64,
 					},
 				})
 				return
 			}
 
 			if delres.DeletedCount > 0 {
-				plural := ""
+				plural := " has"
 				if delres.DeletedCount > 1 {
-					plural = "s"
+					plural = "s have"
 				}
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
-						Content: fmt.Sprintf("The hook%s have been removed.", plural),
+						Content: fmt.Sprintf("The hook%s been removed.", plural),
 					},
 				})
 
@@ -798,6 +848,8 @@ var (
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionApplicationCommandResponseData{
 					Content: "That hook doesn't exist",
+					// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+					Flags: 64,
 				},
 			})
 		}),
@@ -815,6 +867,8 @@ var (
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: fmt.Sprintf("Please enter a valid user."),
+						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+						Flags: 64,
 					},
 				})
 				return
@@ -849,6 +903,8 @@ var (
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
+							// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+							Flags: 64,
 						},
 					})
 					return
@@ -858,6 +914,8 @@ var (
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "The specified user does not exist.",
+							// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+							Flags: 64,
 						},
 					})
 					return
@@ -875,6 +933,8 @@ var (
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
+							// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+							Flags: 64,
 						},
 					})
 					return
@@ -887,6 +947,8 @@ var (
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error. Please try again later.",
+						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+						Flags: 64,
 					},
 				})
 				return
@@ -898,6 +960,8 @@ var (
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: fmt.Sprintf("Internal server error."),
+						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+						Flags: 64,
 					},
 				})
 				return
@@ -923,6 +987,8 @@ var (
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: fmt.Sprintf("Please enter a valid user."),
+						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+						Flags: 64,
 					},
 				})
 				return
@@ -957,6 +1023,8 @@ var (
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
+							// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+							Flags: 64,
 						},
 					})
 					return
@@ -966,6 +1034,8 @@ var (
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "The specified user does not exist.",
+							// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+							Flags: 64,
 						},
 					})
 					return
@@ -983,6 +1053,8 @@ var (
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
+							// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+							Flags: 64,
 						},
 					})
 					return
@@ -995,6 +1067,8 @@ var (
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error. Please try again later.",
+						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+						Flags: 64,
 					},
 				})
 				return
@@ -1006,6 +1080,8 @@ var (
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: fmt.Sprintf("Internal server error."),
+						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+						Flags: 64,
 					},
 				})
 				return
@@ -1014,6 +1090,8 @@ var (
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionApplicationCommandResponseData{
 					Content: fmt.Sprintf("Successfully unignored `%s`.", user.Name),
+					// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+					Flags: 64,
 				},
 			})
 		}),
@@ -1030,6 +1108,8 @@ var (
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: msg,
+						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+						Flags: 64,
 					},
 				})
 				return
@@ -1055,6 +1135,8 @@ var (
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error. Please try again later.",
+						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+						Flags: 64,
 					},
 				})
 				return
@@ -1082,6 +1164,8 @@ var (
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
+							// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+							Flags: 64,
 						},
 					})
 				}
@@ -1264,14 +1348,14 @@ func (b *Bot) processCallback(cb WebhookRequest) {
 		fields = append(fields,
 			&discordgo.MessageEmbedField{Name: "User", Value: cb.UserName},
 		)
-		cmd = fmt.Sprintf("mod %s", cb.ModeratorUserName)
+		cmd = fmt.Sprintf("mod %s", cb.UserName)
 	} else if cb.Action == "channel.moderator.remove" {
 		title = "User Unmod Event"
 		color = 16312092
 		fields = append(fields,
 			&discordgo.MessageEmbedField{Name: "User", Value: cb.UserName},
 		)
-		cmd = fmt.Sprintf("unmod %s", cb.ModeratorUserName)
+		cmd = fmt.Sprintf("unmod %s", cb.UserName)
 	}
 
 	embed := &discordgo.MessageEmbed{

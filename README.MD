@@ -59,7 +59,14 @@ go build
 cp config.demo.yaml config.yaml && vim config.yaml
 ```
 
-5. Setup auto run with systemboot.
+5. Run the bot with rebuild commands flag once. Once you see the application started message you can stop it and run it in the system service.
+```bash
+./modlogs --rebuild_commands
+# for more info on all the flags
+./moglogs --help
+```
+
+6. Setup auto run with systemboot.
 ```bash
 sudo cp modlogs.service /etc/systemd/system && sudo systemctl start modlogs && sudo systemctl enable modlogs
 ```

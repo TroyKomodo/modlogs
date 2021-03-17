@@ -1210,7 +1210,7 @@ var (
 			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionApplicationCommandResponseData{
-					Content: fmt.Sprintf("This bot can be invited to a server by going to <%s/login>.\nThis is an bot is free and opensource, <https://github.com/troydota/modlogs>", configure.Config.GetString("website_url")),
+					Content: fmt.Sprintf("This bot can be invited to a server by going to <%s/login>.\nThis is an opensource bot and it's free, <https://github.com/troydota/modlogs>", configure.Config.GetString("website_url")),
 				},
 			})
 		},

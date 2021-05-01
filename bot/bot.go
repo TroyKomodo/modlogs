@@ -1442,27 +1442,26 @@ func (b *Bot) processCallback(cb WebhookRequest) {
 			}
 			if err != nil {
 				log.Errorf("discord, err=%e, hook=%v", err, hook)
-
-				_, err := mongo.Database.Collection("hooks").DeleteOne(mongo.Ctx, bson.M{
-					"guild_id":    hook.GuildID,
-					"channel_id":  hook.ChannelID,
-					"streamer_id": hook.StreamerID,
-				})
-				if err != nil {
-					log.Errorf("mongo, err=%e, hook=%v", err, hook)
-					return
-				}
-				val, err := redis.Client.Decr(redis.Ctx, fmt.Sprintf("streamers:%s", hook.StreamerID)).Result()
-				if err != nil {
-					log.Errorf("redis, err=%e, hook=%v", err, hook)
-					return
-				}
-				if val == 0 {
-					if err := api.RevokeWebhook(cb.BroadcasterID); err != nil {
-						log.Errorf("api, err=%e, hook=%v", err, hook)
-					}
-					return
-				}
+				// _, err := mongo.Database.Collection("hooks").DeleteOne(mongo.Ctx, bson.M{
+				// 	"guild_id":    hook.GuildID,
+				// 	"channel_id":  hook.ChannelID,
+				// 	"streamer_id": hook.StreamerID,
+				// })
+				// if err != nil {
+				// 	log.Errorf("mongo, err=%e, hook=%v", err, hook)
+				// 	return
+				// }
+				// val, err := redis.Client.Decr(redis.Ctx, fmt.Sprintf("streamers:%s", hook.StreamerID)).Result()
+				// if err != nil {
+				// 	log.Errorf("redis, err=%e, hook=%v", err, hook)
+				// 	return
+				// }
+				// if val == 0 {
+				// 	if err := api.RevokeWebhook(cb.BroadcasterID); err != nil {
+				// 		log.Errorf("api, err=%e, hook=%v", err, hook)
+				// 	}
+				// 	return
+				// }
 			}
 		}(hook)
 	}

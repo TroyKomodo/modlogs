@@ -1,4 +1,4 @@
-FROM golang:1.16.3-alpine3.13 AS build_base
+FROM golang:1.16.5-alpine3.13 AS build_base
 
 RUN apk add --no-cache git
 
@@ -19,13 +19,12 @@ COPY . .
 RUN go build
 
 # Start fresh from a smaller image
-FROM alpine:3.9 
+FROM alpine:3.13
 RUN apk add ca-certificates
 
 WORKDIR /app
 
 COPY --from=build_base /tmp/app/modlogs /app/modlogs
-COPY config.yaml /app/config.yaml
 
 # Run the binary program produced by `go install`
 CMD ["/app/modlogs"]

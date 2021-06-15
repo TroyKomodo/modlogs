@@ -16,16 +16,15 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"github.com/troydota/modlogs/bot"
-	"github.com/troydota/modlogs/mongo"
-	"github.com/troydota/modlogs/redis"
-	"github.com/troydota/modlogs/session"
-	"github.com/troydota/modlogs/utils"
+	"github.com/troydota/modlogs/src/bot"
+	"github.com/troydota/modlogs/src/mongo"
+	"github.com/troydota/modlogs/src/redis"
+	"github.com/troydota/modlogs/src/utils"
 
-	"github.com/troydota/modlogs/api"
+	"github.com/troydota/modlogs/src/api"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/troydota/modlogs/configure"
+	"github.com/troydota/modlogs/src/configure"
 
 	"github.com/pasztorpisti/qs"
 
@@ -66,20 +65,9 @@ type TwitchCallbackTransport struct {
 
 func Twitch(app fiber.Router) fiber.Router {
 	app.Get("/login", func(c *fiber.Ctx) error {
-		sessionStore, err := session.Store.Get(c)
-
-		if err != nil {
-			log.Errorf("session, err=%e", err)
-			return c.Status(500).JSON(&fiber.Map{
-				"message": "Internal server error.",
-				"status":  500,
-			})
-		}
-		defer sessionStore.Save()
-
 		csrfToken, err := utils.GenerateRandomString(64)
 		if err != nil {
-			log.Errorf("secure bytes, err=%e", err)
+			log.WithError(err).Error("secure bytes")
 			return c.Status(500).JSON(&fiber.Map{
 				"message": "Internal server error.",
 				"status":  500,
@@ -90,7 +78,7 @@ func Twitch(app fiber.Router) fiber.Router {
 
 		scopes = append(scopes, "channel:moderate", "moderation:read")
 
-		sessionStore.Set("csrf_token", csrfToken)
+		c.Cookie(&fiber.Cookie{Name: "crsf_token", Value: csrfToken, Domain: configure.Config.GetString("cookie_domain"), Expires: time.Now().Add(time.Second * 300)})
 
 		params, _ := qs.Marshal(map[string]string{
 			"client_id":     configure.Config.GetString("twitch_client_id"),
@@ -106,16 +94,6 @@ func Twitch(app fiber.Router) fiber.Router {
 	})
 
 	app.Get("/login/callback", func(c *fiber.Ctx) error {
-		sessionStore, err := session.Store.Get(c)
-		if err != nil {
-			log.Errorf("session, err=%e", err)
-			return c.Status(500).JSON(&fiber.Map{
-				"message": "Internal server error.",
-				"status":  500,
-			})
-		}
-		defer sessionStore.Save()
-
 		twitchToken := c.Query("state")
 
 		if twitchToken == "" {
@@ -125,13 +103,7 @@ func Twitch(app fiber.Router) fiber.Router {
 			})
 		}
 
-		sessionToken, ok := sessionStore.Get("csrf_token").(string)
-		if !ok {
-			return c.Status(400).JSON(&fiber.Map{
-				"status":  400,
-				"message": "Invalid response from sessiom store.",
-			})
-		}
+		sessionToken := c.Cookies("crsf_token")
 
 		if sessionToken == "" {
 			return c.Status(400).JSON(&fiber.Map{
@@ -146,15 +118,6 @@ func Twitch(app fiber.Router) fiber.Router {
 				"message": "Invalid response from twitch, csrf_token token missmatch.",
 			})
 		}
-
-		if err != nil {
-			return c.Status(400).JSON(&fiber.Map{
-				"status":  400,
-				"message": "Invalid return url.",
-			})
-		}
-
-		sessionStore.Delete("csrf_token")
 
 		code := c.Query("code")
 
@@ -174,7 +137,7 @@ func Twitch(app fiber.Router) fiber.Router {
 		})
 
 		if err != nil {
-			log.Errorf("twitch, err=%e", err)
+			log.WithError(err).Error("twitch")
 			return c.Status(400).JSON(&fiber.Map{
 				"status":  400,
 				"message": "Invalid response from twitch, failed to convert code to access token.",
@@ -185,7 +148,7 @@ func Twitch(app fiber.Router) fiber.Router {
 
 		data, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			log.Errorf("ioutils, err=%e", err)
+			log.WithError(err).Error("ioutil")
 			return c.Status(400).JSON(&fiber.Map{
 				"status":  400,
 				"message": "Invalid response from twitch, failed to convert code to access token.",
@@ -195,7 +158,7 @@ func Twitch(app fiber.Router) fiber.Router {
 		tokenResp := TwitchTokenResp{}
 
 		if err := json.Unmarshal(data, &tokenResp); err != nil {
-			log.Errorf("twitch, err=%e, data=%s, url=%s", err, data, u)
+			log.WithError(err).WithField("data", data).WithField("url", u).Error("twitch")
 			return c.Status(400).JSON(&fiber.Map{
 				"status":  400,
 				"message": "Invalid response from twitch, failed to convert code to access token.",
@@ -204,9 +167,9 @@ func Twitch(app fiber.Router) fiber.Router {
 
 		data, _ = json.Marshal(tokenResp)
 
-		users, err := api.GetUsers(tokenResp.AccessToken, nil, nil)
+		users, err := api.GetUsers(c.Context(), tokenResp.AccessToken, nil, nil)
 		if err != nil || len(users) != 1 {
-			log.Errorf("twitch, err=%e, resp=%v, token=%v", err, users, tokenResp)
+			log.WithError(err).WithField("resp", users).WithField("token", tokenResp).Error("twitch")
 			return c.Status(400).JSON(&fiber.Map{
 				"status":  400,
 				"message": "Invalid response from twitch, failed to convert access token to user account.",
@@ -223,19 +186,19 @@ func Twitch(app fiber.Router) fiber.Router {
 			Name:  user.DisplayName,
 			Login: user.Login,
 		}
-		if _, err := mongo.Database.Collection("users").UpdateOne(mongo.Ctx, bson.M{"$or": bson.A{
+		if _, err := mongo.Database.Collection("users").UpdateOne(c.Context(), bson.M{"$or": bson.A{
 			bson.M{"id": user.ID},
 			bson.M{"login": user.Login},
 		}}, bson.M{"$set": mUser}, opts); err != nil {
-			log.Errorf("mongo, err=%e", err)
+			log.WithError(err).Error("mongo")
 			return c.Status(500).JSON(&fiber.Map{
 				"status":  500,
 				"message": "Failed to save user data.",
 			})
 		}
 
-		if err := redis.Client.HSet(redis.Ctx, "oauth:streamer", user.ID, fmt.Sprintf("%v %s", time.Now().Unix()+exp, string(data))).Err(); err != nil {
-			log.Errorf("redis pipe, err=%e", err)
+		if err := redis.Client.HSet(c.Context(), "oauth:streamer", user.ID, fmt.Sprintf("%v %s", time.Now().Unix()+exp, string(data))).Err(); err != nil {
+			log.WithError(err).Error("redis")
 			return c.Status(500).JSON(&fiber.Map{
 				"status":  500,
 				"message": "Failed to save OAuth token.",
@@ -244,8 +207,8 @@ func Twitch(app fiber.Router) fiber.Router {
 
 		authCode, _ := uuid.NewRandom()
 
-		if err := redis.Client.SetNX(redis.Ctx, fmt.Sprintf("temp:codes:%s", authCode), user.ID, time.Second*300).Err(); err != nil {
-			log.Errorf("redis pipe, err=%e", err)
+		if err := redis.Client.SetNX(c.Context(), fmt.Sprintf("temp:codes:%s", authCode), user.ID, time.Second*300).Err(); err != nil {
+			log.WithError(err).Error("redis")
 			return c.Status(500).JSON(&fiber.Map{
 				"status":  500,
 				"message": "Failed to save temp secret.",
@@ -286,10 +249,10 @@ func Twitch(app fiber.Router) fiber.Router {
 	app.Post("/webhook/:type/:id", func(c *fiber.Ctx) error {
 		key := fmt.Sprintf("webhook:twitch:%s:%s", c.Params("type"), c.Params("id"))
 
-		res, err := redis.Client.HGet(redis.Ctx, key, "secret").Result()
+		res, err := redis.Client.HGet(c.Context(), key, "secret").Result()
 		if err != nil {
 			if err != redis.ErrNil {
-				log.Errorf("redis, err=%e", err)
+				log.WithError(err).Error("redis")
 				return c.SendStatus(500)
 			}
 			return c.SendStatus(404)
@@ -327,10 +290,10 @@ func Twitch(app fiber.Router) fiber.Router {
 		}
 
 		newKey := fmt.Sprintf("twitch:events:%s:%s:%s", c.Params("type"), c.Params("id"), msgID)
-		err = redis.Client.Do(redis.Ctx, "SET", newKey, "1", "NX", "EX", 30*60).Err()
+		err = redis.Client.Do(c.Context(), "SET", newKey, "1", "NX", "EX", 30*60).Err()
 		if err != nil {
 			if err != redis.ErrNil {
-				log.Errorf("redis, err=%e", err)
+				log.WithError(err).Error("redis")
 				return c.SendStatus(500)
 			}
 			log.Warnf("Duplicated key=%s", newKey)
@@ -339,8 +302,8 @@ func Twitch(app fiber.Router) fiber.Router {
 
 		cleanUp := func(statusCode int, resp string) error {
 			if statusCode != 200 {
-				if err := redis.Client.Del(redis.Ctx, newKey).Err(); err != nil {
-					log.Errorf("refis, err=%e", err)
+				if err := redis.Client.Del(c.Context(), newKey).Err(); err != nil {
+					log.WithError(err).Error("redis")
 				}
 			}
 			if resp == "" {
@@ -356,16 +319,16 @@ func Twitch(app fiber.Router) fiber.Router {
 
 		if callback.Subscription.Status == "authorization_revoked" {
 			pipe := redis.Client.Pipeline()
-			pipe.Del(redis.Ctx, key)
-			if _, err := pipe.Exec(redis.Ctx); err != nil {
-				log.Errorf("redis, err=%e", err)
+			pipe.Del(c.Context(), key)
+			if _, err := pipe.Exec(c.Context()); err != nil {
+				log.WithError(err).Error("redis")
 			}
 			return cleanUp(200, "")
 		}
 
 		if callback.Challenge != "" {
-			if err := redis.Client.HSet(redis.Ctx, key, "id", callback.Subscription.ID).Err(); err != nil {
-				log.Errorf("redis, err=%e")
+			if err := redis.Client.HSet(c.Context(), key, "id", callback.Subscription.ID).Err(); err != nil {
+				log.WithError(err).Error("redis")
 				return cleanUp(500, "")
 			}
 			return cleanUp(200, callback.Challenge)

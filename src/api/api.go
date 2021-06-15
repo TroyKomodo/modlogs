@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -11,10 +12,10 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/pasztorpisti/qs"
-	"github.com/troydota/modlogs/auth"
-	"github.com/troydota/modlogs/configure"
-	"github.com/troydota/modlogs/redis"
-	"github.com/troydota/modlogs/utils"
+	"github.com/troydota/modlogs/src/auth"
+	"github.com/troydota/modlogs/src/configure"
+	"github.com/troydota/modlogs/src/redis"
+	"github.com/troydota/modlogs/src/utils"
 
 	jsoniter "github.com/json-iterator/go"
 	log "github.com/sirupsen/logrus"
@@ -38,7 +39,7 @@ type TwitchUser struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
-func GetUsers(oauth string, ids []string, logins []string) ([]TwitchUser, error) {
+func GetUsers(ctx context.Context, oauth string, ids []string, logins []string) ([]TwitchUser, error) {
 	returnv := []TwitchUser{}
 	for len(ids) != 0 || len(logins) != 0 {
 		var temp []string
@@ -63,13 +64,15 @@ func GetUsers(oauth string, ids []string, logins []string) ([]TwitchUser, error)
 			"login": temp2,
 		})
 
-		u, _ := url.Parse(fmt.Sprintf("https://api.twitch.tv/helix/users?%s", params))
+		req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("https://api.twitch.tv/helix/users?%s", params), nil)
+		if err != nil {
+			return nil, err
+		}
 
 		var token string
-		var err error
 
 		if oauth == "" {
-			token, err = auth.GetAuth()
+			token, err = auth.GetAuth(ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -77,14 +80,10 @@ func GetUsers(oauth string, ids []string, logins []string) ([]TwitchUser, error)
 			token = oauth
 		}
 
-		resp, err := http.DefaultClient.Do(&http.Request{
-			Method: "GET",
-			URL:    u,
-			Header: http.Header{
-				"Client-Id":     []string{configure.Config.GetString("twitch_client_id")},
-				"Authorization": []string{fmt.Sprintf("Bearer %s", token)},
-			},
-		})
+		req.Header.Add("Client-Id", configure.Config.GetString("twitch_client_id"))
+		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return nil, err
 		}
@@ -165,9 +164,14 @@ type TwitchCallbackTransport struct {
 	Secret   string `json:"secret"`
 }
 
-func CreateWebhooks(streamerID string) error {
+type Hook struct {
+	Name    string
+	Version string
+}
+
+func CreateWebhooks(ctx context.Context, streamerID string, hooks ...Hook) error {
 	secret, err := utils.GenerateRandomString(64)
-	token, err := auth.GetAuth()
+	token, err := auth.GetAuth(ctx)
 	if err != nil {
 		return err
 	}
@@ -190,7 +194,7 @@ func CreateWebhooks(streamerID string) error {
 		}
 		req, err := http.NewRequest("POST", "https://api.twitch.tv/helix/eventsub/subscriptions", bytes.NewBuffer(data))
 		if err != nil {
-			log.Errorf("req, err=%e", err)
+			log.WithError(err).Error("create webhooks")
 			return err
 		}
 
@@ -200,14 +204,14 @@ func CreateWebhooks(streamerID string) error {
 
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
-			log.Errorf("resp, err=%e", err)
+			log.WithError(err).Error("create webhooks")
 			return err
 		}
 
 		if resp.StatusCode > 300 {
 			data, err := ioutil.ReadAll(resp.Body)
-			log.Errorf("twitch, body=%s, err=%e", data, err)
-			return fmt.Errorf("invalid resp from twitch")
+			log.WithError(err).WithField("body", string(data)).Error("twitch")
+			return auth.InvalidRespTwitch
 		}
 
 		return nil
@@ -215,14 +219,13 @@ func CreateWebhooks(streamerID string) error {
 
 	wg := &sync.WaitGroup{}
 
-	hooks := []struct {
-		t string
-		v string
-	}{
-		{"channel.ban", "1"},
-		{"channel.unban", "1"},
-		{"channel.moderator.add", "beta"},
-		{"channel.moderator.remove", "beta"},
+	if len(hooks) == 0 {
+		hooks = []Hook{
+			{"channel.ban", "1"},
+			{"channel.unban", "1"},
+			{"channel.moderator.add", "1"},
+			{"channel.moderator.remove", "1"},
+		}
 	}
 
 	redisCb := make(chan struct{})
@@ -233,12 +236,12 @@ func CreateWebhooks(streamerID string) error {
 	wg.Add(len(hooks))
 	mtx := sync.Mutex{}
 	for _, h := range hooks {
-		key := fmt.Sprintf("webhook:twitch:%s:%s", h.t, streamerID)
-		cmd := pipe.HSet(redis.Ctx, key, "secret", secret)
+		key := fmt.Sprintf("webhook:twitch:%s:%s", h.Name, streamerID)
+		cmd := pipe.HSet(ctx, key, "secret", secret)
 		go func(t, v string) {
 			<-redisCb
 			if err := cmd.Err(); err != nil {
-				log.Errorf("redis, err=%e, key=%s", err, key)
+				log.WithError(err).WithField("key", key).Error("redis")
 			}
 			defer wg.Done()
 			if errored {
@@ -250,12 +253,12 @@ func CreateWebhooks(streamerID string) error {
 				err = multierror.Append(err, e)
 				mtx.Unlock()
 			}
-		}(h.t, h.v)
+		}(h.Name, h.Version)
 	}
 
-	_, err = pipe.Exec(redis.Ctx)
+	_, err = pipe.Exec(ctx)
 	if err != nil {
-		log.Errorf("redis, err=%e", err)
+		log.WithError(err).Error("redis")
 		errored = true
 	}
 
@@ -266,8 +269,8 @@ func CreateWebhooks(streamerID string) error {
 	return err
 }
 
-func RevokeWebhook(streamerID string) error {
-	token, err := auth.GetAuth()
+func RevokeWebhook(ctx context.Context, streamerID string, hooks ...Hook) error {
+	token, err := auth.GetAuth(ctx)
 	if err != nil {
 		return err
 	}
@@ -275,7 +278,7 @@ func RevokeWebhook(streamerID string) error {
 	cb := func(id string) error {
 		req, err := http.NewRequest("DELETE", fmt.Sprintf("https://api.twitch.tv/helix/eventsub/subscriptions?id=%s", id), nil)
 		if err != nil {
-			log.Errorf("req, err=%e", err)
+			log.WithError(err).Error("revoke webhooks")
 			return err
 		}
 
@@ -284,14 +287,14 @@ func RevokeWebhook(streamerID string) error {
 
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
-			log.Errorf("resp, err=%e", err)
+			log.WithError(err).Error("revoke webhooks")
 			return err
 		}
 
 		if resp.StatusCode > 300 {
 			data, err := ioutil.ReadAll(resp.Body)
-			log.Errorf("twitch, body=%s, err=%e", data, err)
-			return fmt.Errorf("invalid resp from twitch")
+			log.WithError(err).Error("revoke webhooks, body=%s", data)
+			return auth.InvalidRespTwitch
 		}
 
 		return nil
@@ -299,11 +302,13 @@ func RevokeWebhook(streamerID string) error {
 
 	wg := &sync.WaitGroup{}
 
-	hooks := []string{
-		"channel.ban",
-		"channel.unban",
-		"channel.moderator.add",
-		"channel.moderator.remove",
+	if len(hooks) == 0 {
+		hooks = []Hook{
+			{"channel.ban", "1"},
+			{"channel.unban", "1"},
+			{"channel.moderator.add", "1"},
+			{"channel.moderator.remove", "1"},
+		}
 	}
 
 	redisCb := make(chan struct{})
@@ -314,7 +319,7 @@ func RevokeWebhook(streamerID string) error {
 	wg.Add(len(hooks))
 	mtx := sync.Mutex{}
 	for _, h := range hooks {
-		cmd := pipe.HGet(redis.Ctx, fmt.Sprintf("webhook:twitch:%s:%s", h, streamerID), "id")
+		cmd := pipe.HGet(ctx, fmt.Sprintf("webhook:twitch:%s:%s", h.Name, streamerID), "id")
 		go func(cmd *redis.StringCmd) {
 			<-redisCb
 			defer wg.Done()
@@ -330,9 +335,9 @@ func RevokeWebhook(streamerID string) error {
 		}(cmd)
 	}
 
-	_, err = pipe.Exec(redis.Ctx)
+	_, err = pipe.Exec(ctx)
 	if err != nil {
-		log.Errorf("redis, err=%e", err)
+		log.WithError(err).Error("revoke webhooks")
 		errored = true
 	}
 

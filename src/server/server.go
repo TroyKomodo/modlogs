@@ -6,9 +6,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/logger"
-	"github.com/gofiber/fiber/v2/middleware/recover"
-	"github.com/troydota/modlogs/configure"
+	"github.com/troydota/modlogs/src/configure"
+	"github.com/troydota/modlogs/src/utils"
 )
 
 type Server struct {
@@ -16,11 +15,32 @@ type Server struct {
 	listener net.Listener
 }
 
-type CustomLogger struct{}
-
-func (*CustomLogger) Write(data []byte) (n int, err error) {
-	log.Debugln(string(data))
-	return len(data), nil
+func Logger() func(c *fiber.Ctx) error {
+	return func(c *fiber.Ctx) error {
+		var (
+			err interface{}
+		)
+		func() {
+			defer func() {
+				err = recover()
+			}()
+			err = c.Next()
+		}()
+		if err != nil {
+			_ = c.SendStatus(500)
+		}
+		l := log.WithFields(log.Fields{
+			"status": c.Response().StatusCode(),
+			"path":   utils.B2S(c.Request().RequestURI()),
+		})
+		if err != nil {
+			l = l.WithFields(log.Fields{
+				"error": err,
+			})
+		}
+		l.Info()
+		return nil
+	}
 }
 
 func New() *Server {
@@ -35,11 +55,7 @@ func New() *Server {
 		listener: l,
 	}
 
-	server.app.Use(logger.New(logger.Config{
-		Output: &CustomLogger{},
-	}))
-
-	server.app.Use(recover.New())
+	server.app.Use(Logger())
 
 	server.app.Get("/", func(c *fiber.Ctx) error {
 		return c.Redirect(configure.Config.GetString("discord_invite"))
@@ -57,7 +73,7 @@ func New() *Server {
 	go func() {
 		err = server.app.Listener(server.listener)
 		if err != nil {
-			log.Errorf("failed to start http server, err=%e", err)
+			log.WithError(err).Fatal("failed to start http server")
 		}
 	}()
 

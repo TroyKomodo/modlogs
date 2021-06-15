@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -8,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/troydota/modlogs/configure"
-	"github.com/troydota/modlogs/redis"
+	"github.com/troydota/modlogs/src/configure"
+	"github.com/troydota/modlogs/src/redis"
 
 	jsoniter "github.com/json-iterator/go"
 	"github.com/pasztorpisti/qs"
@@ -30,14 +31,14 @@ type AuthResp struct {
 
 var InvalidRespTwitch = fmt.Errorf("invalid resp from twitch")
 
-func GetAuth() (string, error) {
+func GetAuth(ctx context.Context) (string, error) {
 	mutex.Lock()
 	defer mutex.Unlock()
 	if auth != "" {
 		return auth, nil
 	}
 
-	val, err := redis.Client.Get(redis.Ctx, "twitch:auth").Result()
+	val, err := redis.Client.Get(ctx, "twitch:auth").Result()
 	if err != nil && err != redis.ErrNil {
 		return "", err
 	}
@@ -65,7 +66,7 @@ func GetAuth() (string, error) {
 		return "", err
 	}
 	if resp.StatusCode > 200 {
-		log.Errorf("invalid, resp from twitch, resp=%s", string(data))
+		log.WithError(err).WithField("resp", string(data)).Error("auth")
 		return "", InvalidRespTwitch
 	}
 
@@ -78,8 +79,8 @@ func GetAuth() (string, error) {
 
 	expiry := time.Second * time.Duration(int64(float64(resData.ExpiresIn)*0.75))
 
-	if err := redis.Client.SetNX(redis.Ctx, "twitch:auth", auth, expiry).Err(); err != nil {
-		log.Errorf("redis, err=%e", err)
+	if err := redis.Client.SetNX(ctx, "twitch:auth", auth, expiry).Err(); err != nil {
+		log.WithError(err).Error("auth")
 	}
 
 	go func() {

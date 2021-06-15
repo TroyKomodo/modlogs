@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"strconv"
@@ -11,10 +12,10 @@ import (
 	"github.com/bwmarrin/discordgo"
 	jsoniter "github.com/json-iterator/go"
 	log "github.com/sirupsen/logrus"
-	"github.com/troydota/modlogs/api"
-	"github.com/troydota/modlogs/configure"
-	"github.com/troydota/modlogs/mongo"
-	"github.com/troydota/modlogs/redis"
+	"github.com/troydota/modlogs/src/api"
+	"github.com/troydota/modlogs/src/configure"
+	"github.com/troydota/modlogs/src/mongo"
+	"github.com/troydota/modlogs/src/redis"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -272,13 +273,13 @@ var (
 				})
 			}
 
-			userID, err := redis.AuthTokenValues(token)
+			userID, err := redis.AuthTokenValues(context.Background(), token)
 			if err != nil {
 				msg := "Internal server error. Please try again later."
 				if err == redis.ErrNil {
 					msg = "The token you provided is expired or invalid. Please login again to make a new one."
 				} else {
-					log.Errorf("redis, err=%e", err)
+					log.WithError(err).Error("redis")
 				}
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -297,7 +298,7 @@ var (
 				"id": userID,
 			}
 
-			res := mongo.Database.Collection("users").FindOne(mongo.Ctx, filterOr)
+			res := mongo.Database.Collection("users").FindOne(context.Background(), filterOr)
 
 			err = res.Err()
 			if err == nil {
@@ -305,9 +306,9 @@ var (
 			}
 			if err == mongo.ErrNoDocuments {
 				err = nil
-				users, err := api.GetUsers("", []string{userID}, nil)
+				users, err := api.GetUsers(context.Background(), "", []string{userID}, nil)
 				if err != nil {
-					log.Errorf("api, err=%e", err)
+					log.WithError(err).Error("api")
 					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -336,8 +337,8 @@ var (
 					Name:  u.DisplayName,
 					Login: u.Login,
 				}
-				if _, err := mongo.Database.Collection("users").UpdateOne(mongo.Ctx, filterOr, bson.M{"$set": user}, opts); err != nil {
-					log.Errorf("mongo, err=%e", err)
+				if _, err := mongo.Database.Collection("users").UpdateOne(context.Background(), filterOr, bson.M{"$set": user}, opts); err != nil {
+					log.WithError(err).Error("mongo")
 					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -351,7 +352,7 @@ var (
 			}
 
 			if err != nil {
-				log.Errorf("mongo, err=%e", err)
+				log.WithError(err).Error("mongo")
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -378,9 +379,9 @@ var (
 				},
 			}
 
-			updateResp, err := mongo.Database.Collection("hooks").UpdateOne(mongo.Ctx, filter, update)
+			updateResp, err := mongo.Database.Collection("hooks").UpdateOne(context.Background(), filter, update)
 			if err != nil {
-				log.Errorf("mongo, err=%e", err)
+				log.WithError(err).Error("mongo")
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -402,7 +403,7 @@ var (
 				return
 			}
 
-			count, err := mongo.Database.Collection("hooks").CountDocuments(mongo.Ctx, bson.M{
+			count, err := mongo.Database.Collection("hooks").CountDocuments(context.Background(), bson.M{
 				"guild_id": g.ID,
 			})
 
@@ -421,9 +422,9 @@ var (
 
 			opts := options.Update().SetUpsert(true)
 
-			result, err := mongo.Database.Collection("hooks").UpdateOne(mongo.Ctx, filter, update, opts)
+			result, err := mongo.Database.Collection("hooks").UpdateOne(context.Background(), filter, update, opts)
 			if err != nil {
-				log.Errorf("mongo, err=%e", err)
+				log.WithError(err).Error("mongo")
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -435,9 +436,9 @@ var (
 				return
 			}
 			if result.UpsertedCount == 1 {
-				val, err := redis.Client.Incr(redis.Ctx, fmt.Sprintf("streamers:%s", user.ID)).Result()
+				val, err := redis.Client.Incr(context.Background(), fmt.Sprintf("streamers:%s", user.ID)).Result()
 				if err != nil {
-					log.Errorf("redis, err=%e", err)
+					log.WithError(err).Error("redis")
 					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -449,9 +450,9 @@ var (
 					return
 				}
 				if val == 1 {
-					err := api.CreateWebhooks(user.ID)
+					err := api.CreateWebhooks(context.Background(), user.ID)
 					if err != nil {
-						log.Errorf("api, err=%e", err)
+						log.WithError(err).Error("api")
 						s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 							Type: discordgo.InteractionResponseChannelMessageWithSource,
 							Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -460,15 +461,15 @@ var (
 								Flags: 64,
 							},
 						})
-						err := redis.Client.Decr(redis.Ctx, fmt.Sprintf("streamers:%s", user.ID)).Err()
+						err := redis.Client.Decr(context.Background(), fmt.Sprintf("streamers:%s", user.ID)).Err()
 						if err != nil {
-							log.Errorf("redis, err=%e", err)
+							log.WithError(err).Error("redis")
 						}
-						_, err = mongo.Database.Collection("hooks").DeleteOne(mongo.Ctx, bson.M{
+						_, err = mongo.Database.Collection("hooks").DeleteOne(context.Background(), bson.M{
 							"_id": result.UpsertedID,
 						})
 						if err != nil {
-							log.Errorf("mongo, err=%e", err)
+							log.WithError(err).Error("mongo")
 						}
 						return
 					}
@@ -513,12 +514,12 @@ var (
 
 			hooks := []*mongo.Hook{}
 
-			cur, err := mongo.Database.Collection("hooks").Find(mongo.Ctx, filter)
+			cur, err := mongo.Database.Collection("hooks").Find(context.Background(), filter)
 			if err == nil {
-				err = cur.All(mongo.Ctx, &hooks)
+				err = cur.All(context.Background(), &hooks)
 			}
 			if err != nil {
-				log.Errorf("mongo, err=%e", err)
+				log.WithError(err).Error("mongo")
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -551,12 +552,12 @@ var (
 
 			users := []*mongo.User{}
 
-			cur, err = mongo.Database.Collection("users").Find(mongo.Ctx, filter)
+			cur, err = mongo.Database.Collection("users").Find(context.Background(), filter)
 			if err == nil {
-				err = cur.All(mongo.Ctx, &users)
+				err = cur.All(context.Background(), &users)
 			}
 			if err != nil {
-				log.Errorf("mongo, err=%e", err)
+				log.WithError(err).Error("mongo")
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -583,9 +584,9 @@ var (
 						missingIDs = append(missingIDs, id)
 					}
 				}
-				apiUsers, err := api.GetUsers("", missingIDs, nil)
+				apiUsers, err := api.GetUsers(context.Background(), "", missingIDs, nil)
 				if err != nil {
-					log.Errorf("api, err=%e", err)
+					log.WithError(err).Error("api")
 					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -607,13 +608,13 @@ var (
 							Login: u.Login,
 						}
 						users = append(users, user)
-						if _, err := mongo.Database.Collection("users").UpdateOne(mongo.Ctx, bson.M{
+						if _, err := mongo.Database.Collection("users").UpdateOne(context.Background(), bson.M{
 							"$or": bson.A{
 								bson.M{"id": u.ID},
 								bson.M{"login": u.Login},
 							},
 						}, bson.M{"$set": user}, opts); err != nil {
-							log.Errorf("mongo, err=%e", err)
+							log.WithError(err).Error("mongo")
 						}
 					}(u)
 				}
@@ -697,9 +698,9 @@ var (
 
 			broadcaster = strings.ToLower(broadcaster)
 
-			delres, err := mongo.Database.Collection("hooks").DeleteMany(mongo.Ctx, filter)
+			delres, err := mongo.Database.Collection("hooks").DeleteMany(context.Background(), filter)
 			if err != nil {
-				log.Errorf("mongo, err=%e", err)
+				log.WithError(err).Error("mongo")
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -734,7 +735,7 @@ var (
 				},
 			}
 
-			res := mongo.Database.Collection("users").FindOne(mongo.Ctx, filterOr)
+			res := mongo.Database.Collection("users").FindOne(context.Background(), filterOr)
 
 			err = res.Err()
 			if err == nil {
@@ -747,9 +748,9 @@ var (
 					ids = append(ids, broadcaster)
 				}
 
-				users, err := api.GetUsers("", ids, []string{broadcaster})
+				users, err := api.GetUsers(context.Background(), "", ids, []string{broadcaster})
 				if err != nil {
-					log.Errorf("api, err=%e", err)
+					log.WithError(err).Error("api")
 					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -778,8 +779,8 @@ var (
 					Name:  u.DisplayName,
 					Login: u.Login,
 				}
-				if _, err := mongo.Database.Collection("users").UpdateOne(mongo.Ctx, filterOr, bson.M{"$set": user}, opts); err != nil {
-					log.Errorf("mongo, err=%e", err)
+				if _, err := mongo.Database.Collection("users").UpdateOne(context.Background(), filterOr, bson.M{"$set": user}, opts); err != nil {
+					log.WithError(err).Error("mongo")
 					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -793,7 +794,7 @@ var (
 			}
 
 			if err != nil {
-				log.Errorf("mongo, err=%e", err)
+				log.WithError(err).Error("mongo")
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -807,9 +808,9 @@ var (
 
 			filter["streamer_id"] = user.ID
 
-			delres, err = mongo.Database.Collection("hooks").DeleteMany(mongo.Ctx, filter)
+			delres, err = mongo.Database.Collection("hooks").DeleteMany(context.Background(), filter)
 			if err != nil {
-				log.Errorf("mongo, err=%e", err)
+				log.WithError(err).Error("mongo")
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -833,12 +834,12 @@ var (
 					},
 				})
 
-				val, err := redis.Client.DecrBy(redis.Ctx, fmt.Sprintf("streamers:%s", user.ID), delres.DeletedCount).Result()
+				val, err := redis.Client.DecrBy(context.Background(), fmt.Sprintf("streamers:%s", user.ID), delres.DeletedCount).Result()
 				if err != nil {
-					log.Errorf("redis, err=%e", err)
+					log.WithError(err).Error("redis")
 				} else if val == 0 {
-					if err := api.RevokeWebhook(user.ID); err != nil {
-						log.Errorf("api, err=%e", err)
+					if err := api.RevokeWebhook(context.Background(), user.ID); err != nil {
+						log.WithError(err).Error("api")
 					}
 				}
 				return
@@ -883,7 +884,7 @@ var (
 				},
 			}
 
-			res := mongo.Database.Collection("users").FindOne(mongo.Ctx, filterOr)
+			res := mongo.Database.Collection("users").FindOne(context.Background(), filterOr)
 
 			err := res.Err()
 			if err == nil {
@@ -896,9 +897,9 @@ var (
 					ids = append(ids, userInput)
 				}
 
-				users, err := api.GetUsers("", ids, []string{userInput})
+				users, err := api.GetUsers(context.Background(), "", ids, []string{userInput})
 				if err != nil {
-					log.Errorf("api, err=%e", err)
+					log.WithError(err).Error("api")
 					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -927,8 +928,8 @@ var (
 					Name:  u.DisplayName,
 					Login: u.Login,
 				}
-				if _, err := mongo.Database.Collection("users").UpdateOne(mongo.Ctx, filterOr, bson.M{"$set": user}, opts); err != nil {
-					log.Errorf("mongo, err=%e", err)
+				if _, err := mongo.Database.Collection("users").UpdateOne(context.Background(), filterOr, bson.M{"$set": user}, opts); err != nil {
+					log.WithError(err).Error("mongo")
 					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -942,7 +943,7 @@ var (
 			}
 
 			if err != nil {
-				log.Errorf("mongo, err=%e", err)
+				log.WithError(err).Error("mongo")
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -954,8 +955,8 @@ var (
 				return
 			}
 
-			if err := redis.Client.SAdd(redis.Ctx, fmt.Sprintf("ignored-users:%s", g.ID), user.ID).Err(); err != nil {
-				log.Errorf("redis, err=%e", err)
+			if err := redis.Client.SAdd(context.Background(), fmt.Sprintf("ignored-users:%s", g.ID), user.ID).Err(); err != nil {
+				log.WithError(err).Error("redis")
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -1003,7 +1004,7 @@ var (
 				},
 			}
 
-			res := mongo.Database.Collection("users").FindOne(mongo.Ctx, filterOr)
+			res := mongo.Database.Collection("users").FindOne(context.Background(), filterOr)
 
 			err := res.Err()
 			if err == nil {
@@ -1016,9 +1017,9 @@ var (
 					ids = append(ids, userInput)
 				}
 
-				users, err := api.GetUsers("", ids, []string{userInput})
+				users, err := api.GetUsers(context.Background(), "", ids, []string{userInput})
 				if err != nil {
-					log.Errorf("api, err=%e", err)
+					log.WithError(err).Error("api")
 					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -1047,8 +1048,8 @@ var (
 					Name:  u.DisplayName,
 					Login: u.Login,
 				}
-				if _, err := mongo.Database.Collection("users").UpdateOne(mongo.Ctx, filterOr, bson.M{"$set": user}, opts); err != nil {
-					log.Errorf("mongo, err=%e", err)
+				if _, err := mongo.Database.Collection("users").UpdateOne(context.Background(), filterOr, bson.M{"$set": user}, opts); err != nil {
+					log.WithError(err).Error("mongo")
 					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -1062,7 +1063,7 @@ var (
 			}
 
 			if err != nil {
-				log.Errorf("mongo, err=%e", err)
+				log.WithError(err).Error("mongo")
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -1074,8 +1075,8 @@ var (
 				return
 			}
 
-			if err := redis.Client.SRem(redis.Ctx, fmt.Sprintf("ignored-users:%s", g.ID), user.ID).Err(); err != nil {
-				log.Errorf("redis, err=%e", err)
+			if err := redis.Client.SRem(context.Background(), fmt.Sprintf("ignored-users:%s", g.ID), user.ID).Err(); err != nil {
+				log.WithError(err).Error("redis")
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -1096,13 +1097,13 @@ var (
 			})
 		}),
 		"ignored": validationWrapper(func(s *discordgo.Session, i *discordgo.InteractionCreate, g *discordgo.Guild) {
-			val, err := redis.Client.SMembers(redis.Ctx, fmt.Sprintf("ignored-users:%s", g.ID)).Result()
+			val, err := redis.Client.SMembers(context.Background(), fmt.Sprintf("ignored-users:%s", g.ID)).Result()
 			if err != nil || len(val) == 0 {
 				msg := "Internal server error."
 				if err == redis.ErrNil || len(val) == 0 {
 					msg = "There are no ignored users."
 				} else {
-					log.Errorf("redis, err=%e", err)
+					log.WithError(err).Error("redis")
 				}
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -1125,12 +1126,12 @@ var (
 
 			users := []*mongo.User{}
 
-			cur, err := mongo.Database.Collection("users").Find(mongo.Ctx, filter)
+			cur, err := mongo.Database.Collection("users").Find(context.Background(), filter)
 			if err == nil {
-				err = cur.All(mongo.Ctx, &users)
+				err = cur.All(context.Background(), &users)
 			}
 			if err != nil {
-				log.Errorf("mongo, err=%e", err)
+				log.WithError(err).Error("mongo")
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -1157,9 +1158,9 @@ var (
 						missingIDs = append(missingIDs, id)
 					}
 				}
-				apiUsers, err := api.GetUsers("", missingIDs, nil)
+				apiUsers, err := api.GetUsers(context.Background(), "", missingIDs, nil)
 				if err != nil {
-					log.Errorf("api, err=%e", err)
+					log.WithError(err).Error("api")
 					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
@@ -1181,13 +1182,13 @@ var (
 							Login: u.Login,
 						}
 						users = append(users, user)
-						if _, err := mongo.Database.Collection("users").UpdateOne(mongo.Ctx, bson.M{
+						if _, err := mongo.Database.Collection("users").UpdateOne(context.Background(), bson.M{
 							"$or": bson.A{
 								bson.M{"id": u.ID},
 								bson.M{"login": u.Login},
 							},
 						}, bson.M{"$set": user}, opts); err != nil {
-							log.Errorf("mongo, err=%e", err)
+							log.WithError(err).Error("mongo")
 						}
 					}(u)
 				}
@@ -1262,7 +1263,7 @@ func New() *Bot {
 			for _, v := range commands {
 				c, err := dg.ApplicationCommandCreate(dg.State.User.ID, "", v)
 				if err != nil {
-					panic(fmt.Errorf("Cannot create '%v' command: %v", v.Name, err))
+					panic(fmt.Sprintf("cannot create '%v' command: %v", v.Name, err))
 				}
 				bot.commands = append(bot.commands, &cmdWrapper{
 					cmd:     c,
@@ -1290,13 +1291,13 @@ func New() *Bot {
 func (b *Bot) processCallback(cb WebhookRequest) {
 	hooks := []*mongo.Hook{}
 
-	cur, err := mongo.Database.Collection("hooks").Find(mongo.Ctx, bson.M{"streamer_id": cb.BroadcasterID})
+	cur, err := mongo.Database.Collection("hooks").Find(context.Background(), bson.M{"streamer_id": cb.BroadcasterID})
 	if err == nil {
-		err = cur.All(mongo.Ctx, &hooks)
+		err = cur.All(context.Background(), &hooks)
 	}
 
 	if err != nil {
-		log.Errorf("mongo, err=%s", err)
+		log.WithError(err).Error("mongo")
 		return
 	}
 
@@ -1392,29 +1393,29 @@ func (b *Bot) processCallback(cb WebhookRequest) {
 				}
 			}
 			if !found {
-				_, err := mongo.Database.Collection("hooks").DeleteOne(mongo.Ctx, bson.M{
+				_, err := mongo.Database.Collection("hooks").DeleteOne(context.Background(), bson.M{
 					"guild_id":    hook.GuildID,
 					"channel_id":  hook.ChannelID,
 					"streamer_id": hook.StreamerID,
 				})
 				if err != nil {
-					log.Errorf("mongo, err=%e, hook=%v", err, hook)
+					log.WithError(err).WithField("hook", hook).Error("mongo")
 					return
 				}
-				val, err := redis.Client.Decr(redis.Ctx, fmt.Sprintf("streamers:%s", hook.StreamerID)).Result()
+				val, err := redis.Client.Decr(context.Background(), fmt.Sprintf("streamers:%s", hook.StreamerID)).Result()
 				if err != nil {
-					log.Errorf("redis, err=%e, hook=%v", err, hook)
+					log.WithError(err).WithField("hook", hook).Error("redis")
 					return
 				}
 				if val == 0 {
-					if err := api.RevokeWebhook(cb.BroadcasterID); err != nil {
-						log.Errorf("api, err=%e, hook=%v", err, hook)
+					if err := api.RevokeWebhook(context.Background(), cb.BroadcasterID); err != nil {
+						log.WithError(err).WithField("hook", hook).Error("api")
 					}
 					return
 				}
 			}
 
-			if redis.Client.SIsMember(redis.Ctx, fmt.Sprintf("ignored-users:%s", hook.GuildID), executerID).Val() {
+			if redis.Client.SIsMember(context.Background(), fmt.Sprintf("ignored-users:%s", hook.GuildID), executerID).Val() {
 				return
 			}
 
@@ -1441,27 +1442,7 @@ func (b *Bot) processCallback(cb WebhookRequest) {
 				}
 			}
 			if err != nil {
-				log.Errorf("discord, err=%e, hook=%v", err, hook)
-				// _, err := mongo.Database.Collection("hooks").DeleteOne(mongo.Ctx, bson.M{
-				// 	"guild_id":    hook.GuildID,
-				// 	"channel_id":  hook.ChannelID,
-				// 	"streamer_id": hook.StreamerID,
-				// })
-				// if err != nil {
-				// 	log.Errorf("mongo, err=%e, hook=%v", err, hook)
-				// 	return
-				// }
-				// val, err := redis.Client.Decr(redis.Ctx, fmt.Sprintf("streamers:%s", hook.StreamerID)).Result()
-				// if err != nil {
-				// 	log.Errorf("redis, err=%e, hook=%v", err, hook)
-				// 	return
-				// }
-				// if val == 0 {
-				// 	if err := api.RevokeWebhook(cb.BroadcasterID); err != nil {
-				// 		log.Errorf("api, err=%e, hook=%v", err, hook)
-				// 	}
-				// 	return
-				// }
+				log.WithError(err).WithField("hook", hook).Error("discord")
 			}
 		}(hook)
 	}

@@ -51,7 +51,7 @@ func New() *Server {
 	}
 
 	server := &Server{
-		app:      fiber.New(),
+		app:      fiber.New(fiber.Config{DisableStartupMessage: true}),
 		listener: l,
 	}
 

@@ -8,7 +8,7 @@ require (
 	github.com/gofiber/fiber/v2 v2.5.0
 	github.com/google/uuid v1.2.0
 	github.com/hashicorp/go-multierror v1.1.1
-	github.com/json-iterator/go v1.1.10
+	github.com/json-iterator/go v1.1.11
 	github.com/kr/pretty v0.2.1
 	github.com/pasztorpisti/qs v0.0.0-20171216220353-8d6c33ee906c
 	github.com/sirupsen/logrus v1.8.1

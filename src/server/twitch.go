@@ -264,12 +264,14 @@ func Twitch(app fiber.Router) fiber.Router {
 
 		t, err := time.Parse(time.RFC3339, c.Get("Twitch-Eventsub-Message-Timestamp"))
 		if err != nil || t.Before(time.Now().Add(-10*time.Minute)) {
+			log.WithError(err).Warn("too old")
 			return c.SendStatus(400)
 		}
 
 		msgID := c.Get("Twitch-Eventsub-Message-Id")
 
 		if msgID == "" {
+			log.Warn("no msg id")
 			return c.SendStatus(400)
 		}
 
@@ -286,6 +288,7 @@ func Twitch(app fiber.Router) fiber.Router {
 		sha := hex.EncodeToString(h.Sum(nil))
 
 		if c.Get("Twitch-Eventsub-Message-Signature") != fmt.Sprintf("sha256=%s", sha) {
+			log.WithField("twitch", c.Get("Twitch-Eventsub-Message-Signature")).WithField("expected", fmt.Sprintf("sha256=%s", sha)).Warn("sig mismatch")
 			return c.SendStatus(403)
 		}
 
@@ -314,6 +317,7 @@ func Twitch(app fiber.Router) fiber.Router {
 
 		callback := &TwitchCallback{}
 		if err := json.Unmarshal(body, callback); err != nil {
+			log.WithError(err).Error("body")
 			return cleanUp(400, "")
 		}
 
@@ -344,31 +348,38 @@ func Twitch(app fiber.Router) fiber.Router {
 			var ok bool
 			req.BroadcasterUserName, ok = callback.Event["broadcaster_user_login"].(string)
 			if !ok {
+				log.WithField("event", callback.Event).Error("bad event")
 				return cleanUp(400, "")
 			}
-			req.UserName, ok = callback.Event["user_"].(string)
+			req.UserName, ok = callback.Event["user_login"].(string)
 			if !ok {
+				log.WithField("event", callback.Event).Error("bad event")
 				return cleanUp(400, "")
 			}
 			req.Reason, ok = callback.Event["reason"].(string)
 			if !ok {
+				log.WithField("event", callback.Event).Error("bad event")
 				return cleanUp(400, "")
 			}
 			req.ModeratorUserName, ok = callback.Event["moderator_user_login"].(string)
 			if !ok {
+				log.WithField("event", callback.Event).Error("bad event")
 				return cleanUp(400, "")
 			}
 			req.ModeratorID, ok = callback.Event["moderator_user_id"].(string)
 			if !ok {
+				log.WithField("event", callback.Event).Error("bad event")
 				return cleanUp(400, "")
 			}
 			if v, ok := callback.Event["is_permanent"].(bool); ok && !v {
 				exp, ok := callback.Event["ends_at"].(string)
 				if !ok {
+					log.WithField("event", callback.Event).Error("bad event")
 					return cleanUp(400, "")
 				}
 				t, err := time.Parse(time.RFC3339, exp)
 				if err != nil {
+					log.WithField("event", callback.Event).Error("bad event")
 					return cleanUp(400, "")
 				}
 				req.Expires = &t
@@ -377,38 +388,46 @@ func Twitch(app fiber.Router) fiber.Router {
 			var ok bool
 			req.BroadcasterUserName, ok = callback.Event["broadcaster_user_login"].(string)
 			if !ok {
+				log.WithField("event", callback.Event).Error("bad event")
 				return cleanUp(400, "")
 			}
 			req.UserName, ok = callback.Event["user_login"].(string)
 			if !ok {
+				log.WithField("event", callback.Event).Error("bad event")
 				return cleanUp(400, "")
 			}
 			req.ModeratorUserName, ok = callback.Event["moderator_user_login"].(string)
 			if !ok {
+				log.WithField("event", callback.Event).Error("bad event")
 				return cleanUp(400, "")
 			}
 			req.ModeratorID, ok = callback.Event["moderator_user_id"].(string)
 			if !ok {
+				log.WithField("event", callback.Event).Error("bad event")
 				return cleanUp(400, "")
 			}
 		} else if callback.Subscription.Type == "channel.moderator.add" {
 			var ok bool
 			req.BroadcasterUserName, ok = callback.Event["broadcaster_user_login"].(string)
 			if !ok {
+				log.WithField("event", callback.Event).Error("bad event")
 				return cleanUp(400, "")
 			}
 			req.UserName, ok = callback.Event["user_login"].(string)
 			if !ok {
+				log.WithField("event", callback.Event).Error("bad event")
 				return cleanUp(400, "")
 			}
 		} else if callback.Subscription.Type == "channel.moderator.remove" {
 			var ok bool
 			req.BroadcasterUserName, ok = callback.Event["broadcaster_user_login"].(string)
 			if !ok {
+				log.WithField("event", callback.Event).Error("bad event")
 				return cleanUp(400, "")
 			}
 			req.UserName, ok = callback.Event["user_login"].(string)
 			if !ok {
+				log.WithField("event", callback.Event).Error("bad event")
 				return cleanUp(400, "")
 			}
 		}

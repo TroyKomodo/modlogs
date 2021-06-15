@@ -4,7 +4,7 @@ go 1.16
 
 require (
 	github.com/bwmarrin/discordgo v0.23.2
-	github.com/go-redis/redis/v8 v8.7.1
+	github.com/go-redis/redis/v8 v8.10.0
 	github.com/gofiber/fiber/v2 v2.5.0
 	github.com/google/uuid v1.2.0
 	github.com/hashicorp/go-multierror v1.1.1

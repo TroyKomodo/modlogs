@@ -342,11 +342,11 @@ func Twitch(app fiber.Router) fiber.Router {
 
 		if callback.Subscription.Type == "channel.ban" {
 			var ok bool
-			req.BroadcasterUserName, ok = callback.Event["broadcaster_user_name"].(string)
+			req.BroadcasterUserName, ok = callback.Event["broadcaster_user_login"].(string)
 			if !ok {
 				return cleanUp(400, "")
 			}
-			req.UserName, ok = callback.Event["user_name"].(string)
+			req.UserName, ok = callback.Event["user_"].(string)
 			if !ok {
 				return cleanUp(400, "")
 			}
@@ -354,7 +354,7 @@ func Twitch(app fiber.Router) fiber.Router {
 			if !ok {
 				return cleanUp(400, "")
 			}
-			req.ModeratorUserName, ok = callback.Event["moderator_user_name"].(string)
+			req.ModeratorUserName, ok = callback.Event["moderator_user_login"].(string)
 			if !ok {
 				return cleanUp(400, "")
 			}
@@ -375,15 +375,15 @@ func Twitch(app fiber.Router) fiber.Router {
 			}
 		} else if callback.Subscription.Type == "channel.unban" {
 			var ok bool
-			req.BroadcasterUserName, ok = callback.Event["broadcaster_user_name"].(string)
+			req.BroadcasterUserName, ok = callback.Event["broadcaster_user_login"].(string)
 			if !ok {
 				return cleanUp(400, "")
 			}
-			req.UserName, ok = callback.Event["user_name"].(string)
+			req.UserName, ok = callback.Event["user_login"].(string)
 			if !ok {
 				return cleanUp(400, "")
 			}
-			req.ModeratorUserName, ok = callback.Event["moderator_user_name"].(string)
+			req.ModeratorUserName, ok = callback.Event["moderator_user_login"].(string)
 			if !ok {
 				return cleanUp(400, "")
 			}
@@ -393,21 +393,21 @@ func Twitch(app fiber.Router) fiber.Router {
 			}
 		} else if callback.Subscription.Type == "channel.moderator.add" {
 			var ok bool
-			req.BroadcasterUserName, ok = callback.Event["broadcaster_user_name"].(string)
+			req.BroadcasterUserName, ok = callback.Event["broadcaster_user_login"].(string)
 			if !ok {
 				return cleanUp(400, "")
 			}
-			req.UserName, ok = callback.Event["user_name"].(string)
+			req.UserName, ok = callback.Event["user_login"].(string)
 			if !ok {
 				return cleanUp(400, "")
 			}
 		} else if callback.Subscription.Type == "channel.moderator.remove" {
 			var ok bool
-			req.BroadcasterUserName, ok = callback.Event["broadcaster_user_name"].(string)
+			req.BroadcasterUserName, ok = callback.Event["broadcaster_user_login"].(string)
 			if !ok {
 				return cleanUp(400, "")
 			}
-			req.UserName, ok = callback.Event["user_name"].(string)
+			req.UserName, ok = callback.Event["user_login"].(string)
 			if !ok {
 				return cleanUp(400, "")
 			}

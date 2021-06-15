@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	jsoniter "github.com/json-iterator/go"
 	log "github.com/sirupsen/logrus"
 	"github.com/troydota/modlogs/src/api"
 	"github.com/troydota/modlogs/src/configure"
@@ -19,8 +18,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
-
-var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 type Command func(b *Bot, m *discordgo.Message) error
 
@@ -34,7 +31,6 @@ type WebhookRequest struct {
 	Action              string
 	Expires             *time.Time
 	CreatedAt           time.Time
-	rateLimiter         *rateLimiter
 }
 
 var Callback = make(chan WebhookRequest)
@@ -47,16 +43,6 @@ type cmdWrapper struct {
 
 func (c *cmdWrapper) Delete() error {
 	return c.conn.ApplicationCommandDelete(c.cmd.ApplicationID, c.guildID, c.cmd.ID)
-}
-
-type c struct {
-	id   string
-	mode int64
-}
-
-type cc struct {
-	cs  []c
-	cmd *redis.StringCmd
 }
 
 type Bot struct {
@@ -80,7 +66,7 @@ var validationWrapper = func(next func(s *discordgo.Session, i *discordgo.Intera
 		}
 
 		if guild == nil {
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionApplicationCommandResponseData{
 					Content: "Internal Server Error. Please try again later...",
@@ -88,6 +74,9 @@ var validationWrapper = func(next func(s *discordgo.Session, i *discordgo.Intera
 					Flags: 64,
 				},
 			})
+			if err != nil {
+				log.WithError(err).Error("discord")
+			}
 			return
 		} else {
 			valid = i.Member.User.ID == guild.OwnerID
@@ -124,7 +113,7 @@ var validationWrapper = func(next func(s *discordgo.Session, i *discordgo.Intera
 		if valid {
 			next(s, i, guild)
 		} else {
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionApplicationCommandResponseData{
 					Content: "You do not have permission to execute that command.",
@@ -132,6 +121,9 @@ var validationWrapper = func(next func(s *discordgo.Session, i *discordgo.Intera
 					Flags: 64,
 				},
 			})
+			if err != nil {
+				log.WithError(err).Error("discord")
+			}
 		}
 	}
 }
@@ -240,7 +232,7 @@ var (
 				} else if o.Name == "channel" {
 					channel = o.ChannelValue(s)
 					if channel != nil && channel.Type != discordgo.ChannelTypeGuildText {
-						s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 							Type: discordgo.InteractionResponseChannelMessageWithSource,
 							Data: &discordgo.InteractionApplicationCommandResponseData{
 								Content: "Logs can only be outputted into a text channel.",
@@ -248,6 +240,9 @@ var (
 								Flags: 64,
 							},
 						})
+						if err != nil {
+							log.WithError(err).Error("discord")
+						}
 						return
 					}
 				}
@@ -263,7 +258,7 @@ var (
 			}
 
 			if channel == nil {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error occured.",
@@ -271,6 +266,9 @@ var (
 						Flags: 64,
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 			}
 
 			userID, err := redis.AuthTokenValues(context.Background(), token)
@@ -281,7 +279,7 @@ var (
 				} else {
 					log.WithError(err).Error("redis")
 				}
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: msg,
@@ -289,6 +287,9 @@ var (
 						Flags: 64,
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 				return
 			}
 
@@ -309,7 +310,7 @@ var (
 				users, err := api.GetUsers(context.Background(), "", []string{userID}, nil)
 				if err != nil {
 					log.WithError(err).Error("api")
-					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
@@ -317,10 +318,13 @@ var (
 							Flags: 64,
 						},
 					})
+					if err != nil {
+						log.WithError(err).Error("discord")
+					}
 					return
 				}
 				if len(users) == 0 {
-					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "The specified broadcaster does not exist.",
@@ -328,6 +332,9 @@ var (
 							Flags: 64,
 						},
 					})
+					if err != nil {
+						log.WithError(err).Error("discord")
+					}
 					return
 				}
 				u := users[0]
@@ -339,7 +346,7 @@ var (
 				}
 				if _, err := mongo.Database.Collection("users").UpdateOne(context.Background(), filterOr, bson.M{"$set": user}, opts); err != nil {
 					log.WithError(err).Error("mongo")
-					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
@@ -347,13 +354,16 @@ var (
 							Flags: 64,
 						},
 					})
+					if err != nil {
+						log.WithError(err).Error("discord")
+					}
 					return
 				}
 			}
 
 			if err != nil {
 				log.WithError(err).Error("mongo")
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error. Please try again later.",
@@ -361,6 +371,9 @@ var (
 						Flags: 64,
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 				return
 			}
 
@@ -382,7 +395,7 @@ var (
 			updateResp, err := mongo.Database.Collection("hooks").UpdateOne(context.Background(), filter, update)
 			if err != nil {
 				log.WithError(err).Error("mongo")
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error. Please try again later.",
@@ -390,26 +403,47 @@ var (
 						Flags: 64,
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 				return
 			}
 
 			if updateResp.MatchedCount == 1 {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: fmt.Sprintf("ModLogs hook updated for <https://twitch.tv/%s>, into %s", user.Login, channel.Mention()),
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 				return
 			}
 
 			count, err := mongo.Database.Collection("hooks").CountDocuments(context.Background(), bson.M{
 				"guild_id": g.ID,
 			})
+			if err != nil {
+				log.WithError(err).Error("mongo")
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionApplicationCommandResponseData{
+						Content: "Internal server error. Please try again later.",
+						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
+						Flags: 64,
+					},
+				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
+				return
+			}
 
 			max := configure.Config.GetInt64("max_hooks_per_guild")
 			if max != -1 && count >= max {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: fmt.Sprintf("There are too many hooks in this discord. (%v/%v)", count, configure.Config.GetInt64("max_hooks_per_guild")),
@@ -417,6 +451,9 @@ var (
 						Flags: 64,
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 				return
 			}
 
@@ -425,7 +462,7 @@ var (
 			result, err := mongo.Database.Collection("hooks").UpdateOne(context.Background(), filter, update, opts)
 			if err != nil {
 				log.WithError(err).Error("mongo")
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error. Please try again later.",
@@ -433,13 +470,16 @@ var (
 						Flags: 64,
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 				return
 			}
 			if result.UpsertedCount == 1 {
 				val, err := redis.Client.Incr(context.Background(), fmt.Sprintf("streamers:%s", user.ID)).Result()
 				if err != nil {
 					log.WithError(err).Error("redis")
-					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
@@ -447,13 +487,16 @@ var (
 							Flags: 64,
 						},
 					})
+					if err != nil {
+						log.WithError(err).Error("discord")
+					}
 					return
 				}
 				if val == 1 {
 					err := api.CreateWebhooks(context.Background(), user.ID)
 					if err != nil {
 						log.WithError(err).Error("api")
-						s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 							Type: discordgo.InteractionResponseChannelMessageWithSource,
 							Data: &discordgo.InteractionApplicationCommandResponseData{
 								Content: "Internal server error. Please try again later.",
@@ -461,7 +504,10 @@ var (
 								Flags: 64,
 							},
 						})
-						err := redis.Client.Decr(context.Background(), fmt.Sprintf("streamers:%s", user.ID)).Err()
+						if err != nil {
+							log.WithError(err).Error("discord")
+						}
+						err = redis.Client.Decr(context.Background(), fmt.Sprintf("streamers:%s", user.ID)).Err()
 						if err != nil {
 							log.WithError(err).Error("redis")
 						}
@@ -476,12 +522,15 @@ var (
 				}
 			}
 
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionApplicationCommandResponseData{
 					Content: fmt.Sprintf("ModLogs hook added for <https://twitch.tv/%s>, into %s", user.Login, channel.Mention()),
 				},
 			})
+			if err != nil {
+				log.WithError(err).Error("discord")
+			}
 		}),
 		"list": validationWrapper(func(s *discordgo.Session, i *discordgo.InteractionCreate, g *discordgo.Guild) {
 			var channel *discordgo.Channel
@@ -489,7 +538,7 @@ var (
 				if o.Name == "channel" {
 					channel = o.ChannelValue(s)
 					if channel != nil && channel.Type != discordgo.ChannelTypeGuildText {
-						s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 							Type: discordgo.InteractionResponseChannelMessageWithSource,
 							Data: &discordgo.InteractionApplicationCommandResponseData{
 								Content: "Please select a valid channel.",
@@ -497,6 +546,9 @@ var (
 								Flags: 64,
 							},
 						})
+						if err != nil {
+							log.WithError(err).Error("discord")
+						}
 						return
 					}
 				}
@@ -506,11 +558,11 @@ var (
 				"guild_id": g.ID,
 			}
 
-			msg := fmt.Sprintf("List todo for guild - %s", g.ID)
-			if channel != nil {
-				msg = fmt.Sprintf("%s - channel - %s", msg, channel.ID)
-				filter["channel_id"] = channel.ID
-			}
+			// msg := fmt.Sprintf("List todo for guild - %s", g.ID)
+			// if channel != nil {
+			// 	msg = fmt.Sprintf("%s - channel - %s", msg, channel.ID)
+			// 	filter["channel_id"] = channel.ID
+			// }
 
 			hooks := []*mongo.Hook{}
 
@@ -520,7 +572,7 @@ var (
 			}
 			if err != nil {
 				log.WithError(err).Error("mongo")
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal Server Error.",
@@ -528,6 +580,9 @@ var (
 						Flags: 64,
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 				return
 			}
 
@@ -558,7 +613,7 @@ var (
 			}
 			if err != nil {
 				log.WithError(err).Error("mongo")
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error. Please try again later.",
@@ -566,6 +621,9 @@ var (
 						Flags: 64,
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 				return
 			}
 
@@ -587,7 +645,7 @@ var (
 				apiUsers, err := api.GetUsers(context.Background(), "", missingIDs, nil)
 				if err != nil {
 					log.WithError(err).Error("api")
-					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
@@ -595,6 +653,9 @@ var (
 							Flags: 64,
 						},
 					})
+					if err != nil {
+						log.WithError(err).Error("discord")
+					}
 				}
 				wg := sync.WaitGroup{}
 				wg.Add(len(apiUsers))
@@ -654,12 +715,15 @@ var (
 				lines = append(lines, "No hooks were found")
 			}
 
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionApplicationCommandResponseData{
 					Content: strings.Join(lines, "\n"),
 				},
 			})
+			if err != nil {
+				log.WithError(err).Error("discord")
+			}
 		}),
 		"delete": validationWrapper(func(s *discordgo.Session, i *discordgo.InteractionCreate, g *discordgo.Guild) {
 			var broadcaster string
@@ -672,7 +736,7 @@ var (
 				if o.Name == "channel" {
 					channel = o.ChannelValue(s)
 					if channel != nil && channel.Type != discordgo.ChannelTypeGuildText {
-						s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 							Type: discordgo.InteractionResponseChannelMessageWithSource,
 							Data: &discordgo.InteractionApplicationCommandResponseData{
 								Content: "Logs can only be outputted into a text channel.",
@@ -680,6 +744,9 @@ var (
 								Flags: 64,
 							},
 						})
+						if err != nil {
+							log.WithError(err).Error("discord")
+						}
 						return
 					}
 				}
@@ -701,7 +768,7 @@ var (
 			delres, err := mongo.Database.Collection("hooks").DeleteMany(context.Background(), filter)
 			if err != nil {
 				log.WithError(err).Error("mongo")
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error. Please try again later.",
@@ -709,6 +776,9 @@ var (
 						Flags: 64,
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 				return
 			}
 
@@ -717,12 +787,15 @@ var (
 				if delres.DeletedCount > 1 {
 					plural = "s have"
 				}
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: fmt.Sprintf("The hook%s been removed.", plural),
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 				return
 			}
 
@@ -751,7 +824,7 @@ var (
 				users, err := api.GetUsers(context.Background(), "", ids, []string{broadcaster})
 				if err != nil {
 					log.WithError(err).Error("api")
-					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
@@ -759,10 +832,13 @@ var (
 							Flags: 64,
 						},
 					})
+					if err != nil {
+						log.WithError(err).Error("discord")
+					}
 					return
 				}
 				if len(users) == 0 {
-					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "The specified user does not exist.",
@@ -770,6 +846,9 @@ var (
 							Flags: 64,
 						},
 					})
+					if err != nil {
+						log.WithError(err).Error("discord")
+					}
 					return
 				}
 				u := users[0]
@@ -781,7 +860,7 @@ var (
 				}
 				if _, err := mongo.Database.Collection("users").UpdateOne(context.Background(), filterOr, bson.M{"$set": user}, opts); err != nil {
 					log.WithError(err).Error("mongo")
-					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
@@ -789,13 +868,16 @@ var (
 							Flags: 64,
 						},
 					})
+					if err != nil {
+						log.WithError(err).Error("discord")
+					}
 					return
 				}
 			}
 
 			if err != nil {
 				log.WithError(err).Error("mongo")
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error. Please try again later.",
@@ -803,6 +885,9 @@ var (
 						Flags: 64,
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 				return
 			}
 
@@ -811,7 +896,7 @@ var (
 			delres, err = mongo.Database.Collection("hooks").DeleteMany(context.Background(), filter)
 			if err != nil {
 				log.WithError(err).Error("mongo")
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error. Please try again later.",
@@ -819,6 +904,9 @@ var (
 						Flags: 64,
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 				return
 			}
 
@@ -827,12 +915,15 @@ var (
 				if delres.DeletedCount > 1 {
 					plural = "s have"
 				}
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: fmt.Sprintf("The hook%s been removed.", plural),
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 
 				val, err := redis.Client.DecrBy(context.Background(), fmt.Sprintf("streamers:%s", user.ID), delres.DeletedCount).Result()
 				if err != nil {
@@ -845,7 +936,7 @@ var (
 				return
 			}
 
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionApplicationCommandResponseData{
 					Content: "That hook doesn't exist",
@@ -853,6 +944,9 @@ var (
 					Flags: 64,
 				},
 			})
+			if err != nil {
+				log.WithError(err).Error("discord")
+			}
 		}),
 		"ignore": validationWrapper(func(s *discordgo.Session, i *discordgo.InteractionCreate, g *discordgo.Guild) {
 			var userInput string
@@ -864,14 +958,17 @@ var (
 			}
 
 			if userInput == "" {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
-						Content: fmt.Sprintf("Please enter a valid user."),
+						Content: "Please enter a valid user.",
 						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
 						Flags: 64,
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 				return
 			}
 
@@ -900,7 +997,7 @@ var (
 				users, err := api.GetUsers(context.Background(), "", ids, []string{userInput})
 				if err != nil {
 					log.WithError(err).Error("api")
-					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
@@ -908,10 +1005,13 @@ var (
 							Flags: 64,
 						},
 					})
+					if err != nil {
+						log.WithError(err).Error("discord")
+					}
 					return
 				}
 				if len(users) == 0 {
-					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "The specified user does not exist.",
@@ -919,6 +1019,9 @@ var (
 							Flags: 64,
 						},
 					})
+					if err != nil {
+						log.WithError(err).Error("discord")
+					}
 					return
 				}
 				u := users[0]
@@ -930,7 +1033,7 @@ var (
 				}
 				if _, err := mongo.Database.Collection("users").UpdateOne(context.Background(), filterOr, bson.M{"$set": user}, opts); err != nil {
 					log.WithError(err).Error("mongo")
-					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
@@ -938,13 +1041,16 @@ var (
 							Flags: 64,
 						},
 					})
+					if err != nil {
+						log.WithError(err).Error("discord")
+					}
 					return
 				}
 			}
 
 			if err != nil {
 				log.WithError(err).Error("mongo")
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error. Please try again later.",
@@ -952,27 +1058,36 @@ var (
 						Flags: 64,
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 				return
 			}
 
 			if err := redis.Client.SAdd(context.Background(), fmt.Sprintf("ignored-users:%s", g.ID), user.ID).Err(); err != nil {
 				log.WithError(err).Error("redis")
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
-						Content: fmt.Sprintf("Internal server error."),
+						Content: "Internal server error.",
 						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
 						Flags: 64,
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 				return
 			}
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionApplicationCommandResponseData{
 					Content: fmt.Sprintf("Successfully ignored `%s`.", user.Name),
 				},
 			})
+			if err != nil {
+				log.WithError(err).Error("discord")
+			}
 		}),
 		"unignore": validationWrapper(func(s *discordgo.Session, i *discordgo.InteractionCreate, g *discordgo.Guild) {
 			var userInput string
@@ -984,14 +1099,17 @@ var (
 			}
 
 			if userInput == "" {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
-						Content: fmt.Sprintf("Please enter a valid user."),
+						Content: "Please enter a valid user.",
 						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
 						Flags: 64,
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 				return
 			}
 
@@ -1020,7 +1138,7 @@ var (
 				users, err := api.GetUsers(context.Background(), "", ids, []string{userInput})
 				if err != nil {
 					log.WithError(err).Error("api")
-					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
@@ -1028,10 +1146,13 @@ var (
 							Flags: 64,
 						},
 					})
+					if err != nil {
+						log.WithError(err).Error("discord")
+					}
 					return
 				}
 				if len(users) == 0 {
-					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "The specified user does not exist.",
@@ -1039,6 +1160,9 @@ var (
 							Flags: 64,
 						},
 					})
+					if err != nil {
+						log.WithError(err).Error("discord")
+					}
 					return
 				}
 				u := users[0]
@@ -1050,7 +1174,7 @@ var (
 				}
 				if _, err := mongo.Database.Collection("users").UpdateOne(context.Background(), filterOr, bson.M{"$set": user}, opts); err != nil {
 					log.WithError(err).Error("mongo")
-					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
@@ -1058,13 +1182,16 @@ var (
 							Flags: 64,
 						},
 					})
+					if err != nil {
+						log.WithError(err).Error("discord")
+					}
 					return
 				}
 			}
 
 			if err != nil {
 				log.WithError(err).Error("mongo")
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error. Please try again later.",
@@ -1072,22 +1199,28 @@ var (
 						Flags: 64,
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 				return
 			}
 
 			if err := redis.Client.SRem(context.Background(), fmt.Sprintf("ignored-users:%s", g.ID), user.ID).Err(); err != nil {
 				log.WithError(err).Error("redis")
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
-						Content: fmt.Sprintf("Internal server error."),
+						Content: "Internal server error.",
 						// Makes the response ephemeral https://discord.com/developers/docs/interactions/slash-commands#interaction-response
 						Flags: 64,
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 				return
 			}
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionApplicationCommandResponseData{
 					Content: fmt.Sprintf("Successfully unignored `%s`.", user.Name),
@@ -1095,6 +1228,9 @@ var (
 					Flags: 64,
 				},
 			})
+			if err != nil {
+				log.WithError(err).Error("discord")
+			}
 		}),
 		"ignored": validationWrapper(func(s *discordgo.Session, i *discordgo.InteractionCreate, g *discordgo.Guild) {
 			val, err := redis.Client.SMembers(context.Background(), fmt.Sprintf("ignored-users:%s", g.ID)).Result()
@@ -1105,7 +1241,7 @@ var (
 				} else {
 					log.WithError(err).Error("redis")
 				}
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: msg,
@@ -1113,6 +1249,9 @@ var (
 						Flags: 64,
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 				return
 			}
 			// We have a bunch of ids...
@@ -1132,7 +1271,7 @@ var (
 			}
 			if err != nil {
 				log.WithError(err).Error("mongo")
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionApplicationCommandResponseData{
 						Content: "Internal server error. Please try again later.",
@@ -1140,6 +1279,9 @@ var (
 						Flags: 64,
 					},
 				})
+				if err != nil {
+					log.WithError(err).Error("discord")
+				}
 				return
 			}
 
@@ -1161,7 +1303,7 @@ var (
 				apiUsers, err := api.GetUsers(context.Background(), "", missingIDs, nil)
 				if err != nil {
 					log.WithError(err).Error("api")
-					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionApplicationCommandResponseData{
 							Content: "Internal server error. Please try again later.",
@@ -1169,6 +1311,9 @@ var (
 							Flags: 64,
 						},
 					})
+					if err != nil {
+						log.WithError(err).Error("discord")
+					}
 				}
 				wg := sync.WaitGroup{}
 				wg.Add(len(apiUsers))
@@ -1200,20 +1345,26 @@ var (
 				usrStr[i] = user.Name
 			}
 
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionApplicationCommandResponseData{
 					Content: fmt.Sprintf("Ignored Users: %s", strings.Join(usrStr, ", ")),
 				},
 			})
+			if err != nil {
+				log.WithError(err).Error("discord")
+			}
 		}),
 		"link": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionApplicationCommandResponseData{
 					Content: fmt.Sprintf("This bot can be invited to a server by going to <%s/login>.\nThis is an opensource bot and it's free, <https://github.com/troydota/modlogs>", configure.Config.GetString("website_url")),
 				},
 			})
+			if err != nil {
+				log.WithError(err).Error("discord")
+			}
 		},
 	}
 )

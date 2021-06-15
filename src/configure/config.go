@@ -46,14 +46,20 @@ func initLog() {
 	}
 }
 
+func checkErr(err error) {
+	if err != nil {
+		log.WithError(err).Fatal("config")
+	}
+}
+
 func init() {
 	log.SetFormatter(&log.JSONFormatter{})
 	// Default config
 	b, _ := json.Marshal(defaultConf)
 	defaultConfig := bytes.NewReader(b)
 	viper.SetConfigType("json")
-	viper.ReadConfig(defaultConfig)
-	Config.MergeConfigMap(viper.AllSettings())
+	checkErr(viper.ReadConfig(defaultConfig))
+	checkErr(Config.MergeConfigMap(viper.AllSettings()))
 
 	// Flags
 	pflag.String("config_file", "config.yaml", "configure filename")
@@ -76,18 +82,14 @@ func init() {
 	pflag.StringSlice("admins", []string{}, "IDs of global bot admins.")
 	pflag.Int("exit_code", 0, "Status code for successful and graceful shutdown, [0-125].")
 	pflag.Parse()
-	Config.BindPFlags(pflag.CommandLine)
+	checkErr(Config.BindPFlags(pflag.CommandLine))
 
 	// File
 	Config.SetConfigFile(Config.GetString("config_file"))
 	Config.AddConfigPath(".")
 	err := Config.ReadInConfig()
-	if err != nil {
-		log.Warning(err)
-		log.Info("Using default config")
-	} else {
-		Config.MergeInConfig()
-	}
+	checkErr(err)
+	checkErr(Config.MergeInConfig())
 
 	// Environment
 	replacer := strings.NewReplacer(".", "_")
@@ -100,6 +102,6 @@ func init() {
 
 	// Print final config
 	c := ServerCfg{}
-	Config.Unmarshal(&c)
+	checkErr(Config.Unmarshal(&c))
 	log.Debugf("Current configurations: \n%# v", pretty.Formatter(c))
 }

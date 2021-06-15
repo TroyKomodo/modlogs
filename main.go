@@ -41,36 +41,34 @@ func main() {
 	b := bot.New()
 
 	go func() {
-		select {
-		case sig := <-c:
-			log.Infof("sig=%v, gracefully shutting down...", sig)
-			start := time.Now().UnixNano()
+		sig := <-c
+		log.Infof("sig=%v, gracefully shutting down...", sig)
+		start := time.Now().UnixNano()
 
-			wg := sync.WaitGroup{}
+		wg := sync.WaitGroup{}
 
-			wg.Wait()
+		wg.Wait()
 
-			wg.Add(2)
+		wg.Add(2)
 
-			go func() {
-				defer wg.Done()
-				if err := s.Shutdown(); err != nil {
-					log.WithError(err).Error("failed to shutdown server")
-				}
-			}()
+		go func() {
+			defer wg.Done()
+			if err := s.Shutdown(); err != nil {
+				log.WithError(err).Error("failed to shutdown server")
+			}
+		}()
 
-			go func() {
-				defer wg.Done()
-				if err := b.Shutdown(); err != nil {
-					log.WithError(err).Error("failed to shutdown bot")
-				}
-			}()
+		go func() {
+			defer wg.Done()
+			if err := b.Shutdown(); err != nil {
+				log.WithError(err).Error("failed to shutdown bot")
+			}
+		}()
 
-			wg.Wait()
+		wg.Wait()
 
-			log.Infof("Shutdown took, %.2fms", float64(time.Now().UnixNano()-start)/10e5)
-			os.Exit(configCode)
-		}
+		log.Infof("Shutdown took, %.2fms", float64(time.Now().UnixNano()-start)/10e5)
+		os.Exit(configCode)
 	}()
 
 	fixHooks()

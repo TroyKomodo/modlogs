@@ -1,0 +1,35 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    ignore:
+      # ignore forked linters because of their versioning issues. TODO: fix it.
+      - dependency-name: "github.com/golangci/*"
+    reviewers:
+      - troydota
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    reviewers:
+      - troydota
+  - package-ecosystem: docker
+    directory: "/build"
+    schedule:
+      interval: weekly
+    reviewers:
+      - troydota
+  - package-ecosystem: gomod
+    directory: "/scripts/gen_github_action_config"
+    schedule:
+      interval: weekly
+    reviewers:
+      - troydota
+  - package-ecosystem: npm
+    directory: "/docs"
+    schedule:
+      interval: monthly
+    reviewers:
+      - troydota

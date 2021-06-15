@@ -171,6 +171,9 @@ type Hook struct {
 
 func CreateWebhooks(ctx context.Context, streamerID string, hooks ...Hook) error {
 	secret, err := utils.GenerateRandomString(64)
+	if err != nil {
+		return err
+	}
 	token, err := auth.GetAuth(ctx)
 	if err != nil {
 		return err
@@ -293,7 +296,7 @@ func RevokeWebhook(ctx context.Context, streamerID string, hooks ...Hook) error 
 
 		if resp.StatusCode > 300 {
 			data, err := ioutil.ReadAll(resp.Body)
-			log.WithError(err).Error("revoke webhooks, body=%s", data)
+			log.WithError(err).WithField("body", string(data)).Error("revoke webhooks")
 			return auth.InvalidRespTwitch
 		}
 

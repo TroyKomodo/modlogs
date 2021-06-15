@@ -32,9 +32,6 @@ func init() {
 
 	Database = client.Database(configure.Config.GetString("mongo_db"))
 
-	Database.CreateCollection(ctx, "hooks")
-	Database.CreateCollection(ctx, "users")
-
 	_, err = Database.Collection("hooks").Indexes().CreateMany(ctx, []mongo.IndexModel{
 		{Keys: bson.D{{Key: "channel_id", Value: 1}, {Key: "guild_id", Value: 1}, {Key: "streamer_id", Value: 1}}, Options: options.Index().SetUnique(true)},
 		{Keys: bson.M{"channel_id": 1}},

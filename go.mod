@@ -7,13 +7,15 @@ require (
 	github.com/go-redis/redis/v8 v8.10.0
 	github.com/gofiber/fiber/v2 v2.12.0
 	github.com/google/uuid v1.2.0
+	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/json-iterator/go v1.1.11
 	github.com/kr/pretty v0.2.1
+	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/pasztorpisti/qs v0.0.0-20171216220353-8d6c33ee906c
 	github.com/sirupsen/logrus v1.8.1
 	github.com/spf13/pflag v1.0.5
-	github.com/spf13/viper v1.7.1
+	github.com/spf13/viper v1.8.0
 	go.mongodb.org/mongo-driver v1.5.3
 	go.uber.org/ratelimit v0.2.0
 )

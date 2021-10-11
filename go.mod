@@ -4,7 +4,7 @@ go 1.16
 
 require (
 	github.com/bwmarrin/discordgo v0.23.2
-	github.com/go-redis/redis/v8 v8.10.0
+	github.com/go-redis/redis/v8 v8.11.4
 	github.com/gofiber/fiber/v2 v2.12.0
 	github.com/google/uuid v1.2.0
 	github.com/hashicorp/go-multierror v1.1.1
@@ -14,6 +14,7 @@ require (
 	github.com/sirupsen/logrus v1.8.1
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.7.1
+	github.com/stretchr/testify v1.7.0 // indirect
 	go.mongodb.org/mongo-driver v1.5.3
 	go.uber.org/ratelimit v0.2.0
 )
